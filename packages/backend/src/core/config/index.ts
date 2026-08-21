@@ -2,6 +2,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import dotenv from 'dotenv';
 import { z } from 'zod';
+import { looksLikePlaceholder } from '../constants';
 
 // Il monorepo ha un unico .env alla radice (accanto a docker-compose.yml).
 // npm workspaces esegue "dev"/"start" con cwd = packages/backend, quindi saliamo
@@ -44,7 +45,24 @@ const envSchema = z.object({
   PASSWORD_RESET_EXPIRES_IN: z.string().default('1h'),
 });
 
-const parsedEnv = envSchema.safeParse(process.env);
+// Un placeholder di .env.example può essere lungo abbastanza da superare il controllo
+// `.min(32)` qui sopra (è già capitato: un segnaposto scritto per essere leggibile finiva
+// per avere più di 32 caratteri) — chi lo copia per sbaglio in produzione otterrebbe un
+// segreto valido ma noto a chiunque legga il repository. Questo controllo intercetta
+// quel caso specifico, indipendentemente da quanto lungo sarà un futuro placeholder.
+const schemaWithGuards = envSchema.superRefine((data, ctx) => {
+  if (looksLikePlaceholder(data.JWT_ACCESS_SECRET)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['JWT_ACCESS_SECRET'], message: 'sembra ancora il segnaposto di .env.example, non un segreto vero (openssl rand -base64 32)' });
+  }
+  if (looksLikePlaceholder(data.JWT_REFRESH_SECRET)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['JWT_REFRESH_SECRET'], message: 'sembra ancora il segnaposto di .env.example, non un segreto vero (openssl rand -base64 32)' });
+  }
+  if (data.JWT_ACCESS_SECRET === data.JWT_REFRESH_SECRET) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['JWT_REFRESH_SECRET'], message: 'deve essere diverso da JWT_ACCESS_SECRET (due segreti identici vanificano la separazione access/refresh)' });
+  }
+});
+
+const parsedEnv = schemaWithGuards.safeParse(process.env);
 
 if (!parsedEnv.success) {
   console.error("[CONFIG] Variabili d'ambiente mancanti o non valide:\n");
@@ -56,7 +74,19 @@ if (!parsedEnv.success) {
   process.exit(1);
 }
 
+// La barra finale è l'errore più probabile quando si incolla un URL dal pannello Render
+// (il browser la aggiunge quasi sempre): un'origine con la barra non corrisponde MAI
+// all'header Origin di un browser, che non ce l'ha mai — senza questa normalizzazione,
+// l'unico sintomo sarebbe un blocco CORS silenzioso, difficile da collegare alla causa.
+const corsOrigins = parsedEnv.data.CORS_ORIGINS.split(',')
+  .map((origin) => origin.trim().replace(/\/+$/, ''))
+  .filter(Boolean);
+
+if (corsOrigins.length === 0 && parsedEnv.data.NODE_ENV === 'production') {
+  console.warn('[CONFIG] CORS_ORIGINS è vuota in produzione: nessuna origine potrà chiamare le API dal browser.');
+}
+
 export const CONFIG = Object.freeze({
   ...parsedEnv.data,
-  corsOrigins: parsedEnv.data.CORS_ORIGINS.split(',').map((origin) => origin.trim()),
+  corsOrigins,
 });

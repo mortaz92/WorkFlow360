@@ -9,7 +9,7 @@
     "test": "vitest run",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/core/db/migrate.ts",
-    "db:seed": "tsx src/core/db/seed.ts"
+    "bootstrap:admin": "tsx scripts/bootstrap-admin.ts"
   },
   "dependencies": {
     "express": "^4.19.2",

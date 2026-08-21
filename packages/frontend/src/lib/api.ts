@@ -2,7 +2,20 @@
 // Il backend gira su :4000; in dev il proxy Vite rimappa /api -> :4000 (v. vite.config.ts).
 
 const TOKEN_KEY = 'wf360_token';
-const API_BASE = '/api/v1';
+
+// In produzione frontend e backend stanno su due domini diversi (sito statico + web
+// service), quindi l'URL del backend va iniettato al momento della build con
+// VITE_API_BASE_URL (es. https://workflow360-api.onrender.com/api/v1).
+// Senza la variabile si resta sul percorso relativo, che in sviluppo passa dal proxy
+// Vite verso :4000: locale invariato rispetto a prima. Variabile vuota = variabile
+// assente, perché è facile crearla su Render e lasciarla senza valore, e un API_BASE
+// stringa vuota romperebbe ogni chiamata in modo silenzioso.
+// Barra finale tolta: è l'errore più probabile quando si incolla l'URL dal pannello
+// Render (il browser la aggiunge quasi sempre) — con la barra, ogni chiamata diventerebbe
+// ".../api/v1//auth/login" (doppia barra), che non corrisponde a nessuna rotta: 404 su
+// tutto, login compreso, con un sintomo che non fa pensare subito alla causa.
+const apiBaseFromEnv = import.meta.env.VITE_API_BASE_URL as string | undefined;
+const API_BASE = apiBaseFromEnv?.trim().replace(/\/+$/, '') || '/api/v1';
 
 export function getToken(): string | null {
   return localStorage.getItem(TOKEN_KEY);

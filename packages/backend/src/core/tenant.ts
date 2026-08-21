@@ -1,4 +1,4 @@
-import type { AuthenticatedUser } from '../auth/auth.types';
+import type { AuthenticatedUser } from '../modules/auth/auth.types';
 
 /**
  * Helper centralizzato per il multi-tenant.

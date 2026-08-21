@@ -7,6 +7,12 @@
          luce) devono poter ingrandire — bloccare lo zoom è un problema di accessibilità. -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#2563eb" />
+    <!-- Supporto minimo iOS: Safari ignora manifest.icons per l'icona in home screen e
+         usa apple-touch-icon; i due meta fanno partire l'app a schermo intero (senza
+         barra del browser) quando viene aperta dall'icona salvata. -->
+    <link rel="apple-touch-icon" href="/icon-192.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <title>WorkFlow360</title>
   </head>
   <body>

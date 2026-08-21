@@ -1,0 +1,131 @@
+# Blueprint Render per WorkFlow360 (database + backend + frontend PWA).
+#
+# Come si usa: su Render, "New" > "Blueprint", collega questo repository e conferma.
+# Render legge questo file e propone i tre servizi qui sotto. Le variabili marcate
+# `sync: false` NON stanno nel file (sarebbe un segreto nel repository): Render le chiede
+# al momento della creazione, oppure si impostano dopo dalla scheda "Environment".
+#
+# Passo-passo per un utente non tecnico: vedi GUIDA-DEPLOY.md nella cartella principale.
+#
+# NOTA: la sintassi dei Blueprint cambia nel tempo (per esempio `runtime:` ha sostituito il
+# vecchio `env:`). Se Render segnala un errore su una chiave, confrontala con la
+# documentazione ufficiale aggiornata: https://render.com/docs/blueprint-spec
+
+databases:
+  # Postgres gestito da Render. ATTENZIONE al piano free: storicamente scade dopo un
+  # periodo limitato e non fa backup automatici (vedi l'avviso in GUIDA-DEPLOY.md).
+  - name: workflow360-db
+    databaseName: workflow360
+    user: workflow360
+    plan: free
+    # Tutti e tre i servizi nella stessa regione: backend e database si parlano così
+    # sulla rete interna di Render, senza uscire su Internet.
+    region: frankfurt
+
+services:
+  # --- Backend: API Express + migrazioni del database ---
+  - type: web
+    name: workflow360-api
+    runtime: node
+    plan: free
+    region: frankfurt
+    branch: master
+    # La radice del repository, NON packages/backend: il progetto usa gli npm workspaces
+    # e il package-lock.json vive qui. Da packages/backend, `npm ci` non troverebbe le
+    # dipendenze condivise installate nel node_modules della radice.
+    rootDir: .
+    # --include=dev serve: TypeScript e i @types sono devDependencies e senza di loro
+    # la compilazione fallisce (Render, con NODE_ENV=production, le salterebbe).
+    buildCommand: npm ci --include=dev && npm run build --workspace=packages/backend
+    # Le migrazioni girano all'AVVIO, non durante la build: se una migrazione fallisce il
+    # comando esce con errore e il servizio non parte. È voluto — meglio un servizio giù
+    # che un'API viva sopra un database in uno stato che non conosce.
+    startCommand: cd packages/backend && node dist/core/db/migrate.js && node dist/index.js
+    healthCheckPath: /api/v1/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # Collegata automaticamente al database qui sopra: Render inserisce la stringa di
+      # connessione interna, non va copiata a mano.
+      - key: DATABASE_URL
+        fromDatabase:
+          name: workflow360-db
+          property: connectionString
+      # Da impostare a mano su Render (nessun valore nel repository).
+      # Generane uno diverso per ciascuno, almeno 32 caratteri:
+      #   openssl rand -base64 32
+      - key: JWT_ACCESS_SECRET
+        sync: false
+      - key: JWT_REFRESH_SECRET
+        sync: false
+      # Queste 4 NON sono segrete e hanno già un default in config/index.ts — ma il
+      # default di Zod scatta solo se la variabile è del tutto ASSENTE, non se Render la
+      # crea con un valore vuoto (facile da fare per sbaglio dal pannello). Un valore
+      # vuoto qui rompe silenziosamente ogni login con un 500. Per questo hanno un
+      # `value:` esplicito invece di `sync: false` — restano comunque modificabili dal
+      # pannello Render dopo la creazione, se un domani servisse cambiarle.
+      - key: JWT_ACCESS_EXPIRES_IN
+        value: 15m
+      - key: JWT_REFRESH_EXPIRES_IN
+        value: 7d
+      - key: PASSWORD_RESET_EXPIRES_IN
+        value: 1h
+      - key: MAIL_FROM
+        value: WorkFlow360 <onboarding@resend.dev>
+      # Caso diverso da quelle sopra: TZ non è nello schema Zod di config/index.ts (la
+      # legge Node direttamente dall'ambiente), quindi non ha "un default nel codice" —
+      # senza questa riga sarebbe semplicemente UTC. Fuso orario del server: le ore dei
+      # cantieri si leggono in locale, non in UTC.
+      - key: TZ
+        value: Europe/Rome
+      # Da impostare a mano DOPO aver creato il frontend, con il suo URL reale
+      # (es. https://workflow360-web.onrender.com). Senza, il browser blocca le chiamate.
+      - key: CORS_ORIGINS
+        sync: false
+      # Stesso URL del frontend: ci finisce dentro il link dell'email di reset password.
+      - key: APP_BASE_URL
+        sync: false
+      # Facoltativa: senza, il backend parte lo stesso e le email di reset non partono.
+      - key: RESEND_API_KEY
+        sync: false
+      # PORT NON va impostata: la fornisce Render e il backend la legge da sola.
+
+  # --- Frontend: sito statico (PWA installabile) ---
+  # Nessuna `region` qui: i siti statici Render vivono sulla CDN globale, non in una
+  # regione singola come il backend e il database.
+  - type: web
+    name: workflow360-web
+    runtime: static
+    branch: master
+    rootDir: .
+    buildCommand: npm ci --include=dev && npm run build --workspace=packages/frontend
+    staticPublishPath: packages/frontend/dist
+    routes:
+      # Obbligatorio con BrowserRouter: senza, aprire o ricaricare direttamente un
+      # indirizzo interno (es. /cantieri/123) darebbe 404, perché quel file non esiste —
+      # la pagina la costruisce React nel browser. `rewrite` serve index.html con 200.
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    headers:
+      # Il CDN tiene in cache i file: senza queste regole, dopo un aggiornamento il
+      # telefono continuerebbe a caricare un index.html vecchio che punta a file JS non
+      # più esistenti (schermata bianca). Attenzione: la regola su un path esatto tipo
+      # "/index.html" NON copre quello che il browser chiede davvero, cioè "/" o un
+      # indirizzo interno come "/cantieri/123" — bisognerebbe elencarli tutti. Più
+      # semplice e corretto il contrario: tutto NON cacheabile di default, tranne ciò
+      # che Vite genera con un hash nel nome (sotto /assets/), che per costruzione non
+      # può mai cambiare contenuto restando allo stesso URL.
+      - path: /*
+        name: Cache-Control
+        value: no-cache
+      - path: /assets/*
+        name: Cache-Control
+        value: public, max-age=31536000, immutable
+    envVars:
+      # Letta durante la BUILD (non a runtime: il frontend è statico). Va impostata a mano
+      # con l'URL del backend, comprensivo di /api/v1, dopo aver creato il servizio API:
+      #   https://workflow360-api.onrender.com/api/v1
+      # Cambiandola serve un nuovo deploy del frontend perché il valore finisce nel bundle.
+      - key: VITE_API_BASE_URL
+        sync: false

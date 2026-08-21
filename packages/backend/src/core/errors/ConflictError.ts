@@ -6,7 +6,7 @@ import { AppError } from './AppError';
  * risolvere il conflitto (es. rimuovendo un utente) e riprovare.
  */
 export class ConflictError extends AppError {
-  constructor(message: string, details?: unknown) {
+  constructor(message: string, details?: Record<string, unknown>) {
     super(message, 409, 'CONFLICT', details);
   }
 }
