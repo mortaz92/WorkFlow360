@@ -2,11 +2,12 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { userRoleEnum } from '../../core/db/schema';
 import { ValidationError } from '../../core/errors';
+import { emailSchema } from '../../core/validation';
 import { requireAuth, requireRole } from '../auth/auth.middleware';
 import { createUser, getUserById, listUsers, updateUser } from './users.service';
 
 const createUserSchema = z.object({
-  email: z.string().email(),
+  email: emailSchema,
   name: z.string().min(1).max(255),
   role: z.enum(userRoleEnum.enumValues),
   department: z.string().max(255).optional(),
@@ -19,7 +20,7 @@ const updateUserSchema = z
     // qualcuno la fornisce esplicitamente. L'email è anche l'identità di accesso —
     // updateUser() ora cattura la violazione UNIQUE (vedi users.service.ts) per
     // rispondere 400 invece di un 500 generico se la nuova email è già in uso.
-    email: z.string().email().optional(),
+    email: emailSchema.optional(),
     name: z.string().min(1).max(255).optional(),
     role: z.enum(userRoleEnum.enumValues).optional(),
     // nullable distinto da optional: null rimuove esplicitamente il department,

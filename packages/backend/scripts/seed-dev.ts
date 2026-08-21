@@ -35,7 +35,11 @@ async function main() {
   refuseIfNotLocal();
 
   const companyName = process.env.SEED_COMPANY ?? 'Neotekna SRL';
-  const adminEmail = process.env.SEED_EMAIL ?? 'admin@neotekna.it';
+  // trim+lowercase: stessa normalizzazione di emailSchema (core/validation.ts), qui
+  // fatta a mano perché questo script non passa da Zod — un'email demo scritta con un
+  // case diverso da SEED_EMAIL creerebbe lo stesso bug "credenziali non valide al
+  // login" già visto in produzione con bootstrap-admin.
+  const adminEmail = (process.env.SEED_EMAIL ?? 'admin@neotekna.it').trim().toLowerCase();
   const adminPassword = process.env.SEED_PASSWORD ?? 'Admin123!';
   const adminName = process.env.SEED_NAME ?? 'Admin Neotekna';
 

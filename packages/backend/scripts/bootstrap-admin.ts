@@ -3,7 +3,10 @@
 //
 // USO (dal PC locale, puntando al database di produzione):
 //   cd packages/backend
-//   DATABASE_URL="postgresql://...?sslmode=verify-full" \
+//   DATABASE_URL="postgresql://...?sslmode=require" \
+//   (require, non verify-full: la libreria "postgres" usata qui non riconosce
+//   quel valore, il server rifiuterebbe la connessione con "SSL/TLS required" —
+//   verificato dal vivo il 21/08 contro il database reale)
 //   BOOTSTRAP_COMPANY_NAME="Neotekna SRL" \
 //   BOOTSTRAP_ADMIN_NAME="Mario Rossi" \
 //   BOOTSTRAP_ADMIN_EMAIL="mario@neotekna.it" \
@@ -24,8 +27,8 @@ import bcrypt from 'bcrypt';
 import postgres from 'postgres';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { sql } from 'drizzle-orm';
-import { z } from 'zod';
 import { BCRYPT_COST, looksLikePlaceholder } from '../src/core/constants';
+import { emailSchema } from '../src/core/validation';
 import { companies, users } from '../src/core/db/schema';
 
 const databaseUrl = process.env.DATABASE_URL;
@@ -94,9 +97,14 @@ function readInput(): BootstrapInput {
     process.exit(1);
   }
 
-  const email = raw.adminEmail as string;
-  if (!z.string().email().safeParse(email).success) {
-    console.error(`[BOOTSTRAP] BOOTSTRAP_ADMIN_EMAIL non è un indirizzo email valido: ${email}`);
+  // .toLowerCase() dentro emailSchema, non solo .email(): un'email creata con un case
+  // diverso da quello poi digitato al login fallirebbe con "credenziali non valide"
+  // (Postgres confronta stringhe exact-match) — bug reale, riprodotto col primo admin
+  // creato in produzione il 20/08 (creato con una maiuscola nel dominio, login con
+  // dominio minuscolo rifiutato).
+  const emailResult = emailSchema.safeParse(raw.adminEmail);
+  if (!emailResult.success) {
+    console.error(`[BOOTSTRAP] BOOTSTRAP_ADMIN_EMAIL non è un indirizzo email valido: ${raw.adminEmail}`);
     console.error('[BOOTSTRAP] Nessuna modifica al database.');
     process.exit(1);
   }
@@ -104,7 +112,7 @@ function readInput(): BootstrapInput {
   return {
     companyName: raw.companyName as string,
     adminName: raw.adminName as string,
-    adminEmail: email,
+    adminEmail: emailResult.data,
     adminPassword: password,
   };
 }

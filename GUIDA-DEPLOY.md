@@ -248,14 +248,15 @@ che crea le tabelle nel database, e prima di quello non c'è nulla da riempire.
    ```
 
 3. Lancia questo comando, sostituendo le parti in maiuscolo. Nota il
-   `?sslmode=verify-full` aggiunto in fondo all'indirizzo del database (non
-   `require`: quella modalità cifra la connessione ma non controlla che il server
-   dall'altra parte sia davvero quello giusto — con `verify-full` sì).
+   `?sslmode=require` aggiunto in fondo all'indirizzo del database: senza, la
+   connessione da casa viene rifiutata con "SSL/TLS required" (verificato dal vivo).
+   Non usare `verify-full`: sembra la scelta più sicura, ma la libreria usata da
+   questo script non la riconosce e la connessione fallisce allo stesso modo.
 
    Su **Windows (PowerShell)**:
 
    ```powershell
-   $env:DATABASE_URL="INCOLLA_EXTERNAL_DATABASE_URL?sslmode=verify-full"
+   $env:DATABASE_URL="INCOLLA_EXTERNAL_DATABASE_URL?sslmode=require"
    $env:BOOTSTRAP_COMPANY_NAME="Nome Della Tua Azienda"
    $env:BOOTSTRAP_ADMIN_NAME="Nome Cognome"
    $env:BOOTSTRAP_ADMIN_EMAIL="tua@email.it"
@@ -266,7 +267,7 @@ che crea le tabelle nel database, e prima di quello non c'è nulla da riempire.
    Su **Mac/Linux**:
 
    ```bash
-   DATABASE_URL="INCOLLA_EXTERNAL_DATABASE_URL?sslmode=verify-full" \
+   DATABASE_URL="INCOLLA_EXTERNAL_DATABASE_URL?sslmode=require" \
    BOOTSTRAP_COMPANY_NAME="Nome Della Tua Azienda" \
    BOOTSTRAP_ADMIN_NAME="Nome Cognome" \
    BOOTSTRAP_ADMIN_EMAIL="tua@email.it" \

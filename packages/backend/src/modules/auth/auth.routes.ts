@@ -3,6 +3,7 @@ import ms from 'ms';
 import { z } from 'zod';
 import { CONFIG } from '../../core/config';
 import { UnauthorizedError, ValidationError } from '../../core/errors';
+import { emailSchema } from '../../core/validation';
 import { requireAuth } from './auth.middleware';
 import {
   issueRefreshToken,
@@ -18,12 +19,12 @@ const REFRESH_COOKIE_NAME = 'wf360_refresh';
 const REFRESH_COOKIE_PATH = '/api/v1/auth';
 
 const loginSchema = z.object({
-  email: z.string().email(),
+  email: emailSchema,
   password: z.string().min(1),
 });
 
 const forgotPasswordSchema = z.object({
-  email: z.string().email(),
+  email: emailSchema,
 });
 
 // Stessa regola minima di createUserSchema (users.routes.ts): due soglie diverse per
