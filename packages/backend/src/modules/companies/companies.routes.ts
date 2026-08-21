@@ -1,8 +1,9 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { ValidationError } from '../../core/errors';
-import { requireAuth } from '../auth/auth.middleware';
+import { requireAuth, requireRole } from '../auth/auth.middleware';
 import { createCompany, getCompanyById, listCompanies, updateCompany } from './companies.service';
+import { COMPANY_MANAGER_ROLES } from './companies.types';
 
 const createSchema = z.object({
   name: z.string().min(1).max(255),
@@ -32,9 +33,11 @@ function parseId(id: string): string {
 
 export const companiesRouter = Router();
 
-// L'azienda è creata dal bootstrap iniziale (primo admin). Qui esponiamo solo
-// lettura dell'elenco e dettaglio. La scrittura (creazione/modifica) è protetta
-// da requireRole admin nel bootstrap; per ora bastano GET per il MVP.
+// L'azienda è creata dal bootstrap iniziale (primo admin) — non esiste (e non è
+// previsto) un endpoint per creare una SECONDA azienda in questo SaaS single-tenant-
+// per-deploy. La modifica (PATCH sotto) invece è voluta: senza, il nome scelto al
+// bootstrap (es. per una demo) resterebbe permanente, senza modo di correggerlo prima
+// di un uso reale con un cliente vero.
 companiesRouter.use('/', requireAuth);
 
 companiesRouter.get('/', async (req, res, next) => {
@@ -52,6 +55,23 @@ companiesRouter.get('/:id', async (req, res, next) => {
     if (!req.user) throw new Error('req.user non popolato');
     const id = parseId(req.params.id);
     const c = await getCompanyById(id, req.user.companyId);
+    res.json({ company: c });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Solo admin, non i project_manager (COMPANY_MANAGER_ROLES = ['admin']): l'anagrafica
+// azienda è un'impostazione a livello dell'intero tenant, non di un singolo cantiere.
+companiesRouter.patch('/:id', requireRole(...COMPANY_MANAGER_ROLES), async (req, res, next) => {
+  try {
+    if (!req.user) throw new Error('req.user non popolato');
+    const id = parseId(req.params.id);
+    const parsed = updateSchema.safeParse(req.body);
+    if (!parsed.success) {
+      throw new ValidationError(parsed.error.errors[0]?.message ?? 'Dati non validi');
+    }
+    const c = await updateCompany(id, parsed.data, req.user.companyId);
     res.json({ company: c });
   } catch (err) {
     next(err);

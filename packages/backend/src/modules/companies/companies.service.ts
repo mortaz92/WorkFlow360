@@ -2,7 +2,7 @@ import { desc, eq } from 'drizzle-orm';
 import { db } from '../../core/db';
 import { companies } from '../../core/db/schema';
 import { NotFoundError, ValidationError } from '../../core/errors';
-import type { CreateCompanyInput, PublicCompany } from './companies.types';
+import type { CreateCompanyInput, PublicCompany, UpdateCompanyInput } from './companies.types';
 
 function toPublicCompany(c: typeof companies.$inferSelect): PublicCompany {
   const { ...pub } = c;
@@ -51,11 +51,10 @@ export async function createCompany(input: CreateCompanyInput): Promise<PublicCo
   return toPublicCompany(c);
 }
 
-// Non raggiungibile oggi (nessuna rotta POST/PATCH è montata in companies.routes.ts),
-// ma scoped comunque: se una futura rotta la collegasse senza ripetere il controllo,
-// senza questo filtro qualunque admin avrebbe potuto modificare l'anagrafica di
-// qualunque altra azienda per id.
-export async function updateCompany(id: string, input: CreateCompanyInput, companyId: string): Promise<PublicCompany> {
+// Scoped come getCompanyById: un admin può modificare SOLO la propria azienda, mai
+// un'altra per id (companies.routes.ts passa sempre req.user.companyId come terzo
+// argomento — senza questo controllo qui, un id arbitrario nell'URL basterebbe).
+export async function updateCompany(id: string, input: UpdateCompanyInput, companyId: string): Promise<PublicCompany> {
   if (id !== companyId) {
     throw new NotFoundError('Azienda non trovata');
   }

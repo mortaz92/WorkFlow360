@@ -18,5 +18,15 @@ export interface CreateCompanyInput {
   address?: string;
 }
 
+// A differenza della creazione, in un PATCH ogni campo (incluso il nome) è per
+// definizione facoltativo: il chiamante manda solo ciò che vuole cambiare.
+export interface UpdateCompanyInput {
+  name?: string;
+  vat?: string;
+  email?: string;
+  phone?: string;
+  address?: string;
+}
+
 // Ruoli che possono gestire (creare/modificare) l'azienda stessa.
 export const COMPANY_MANAGER_ROLES: UserRole[] = ['admin'];

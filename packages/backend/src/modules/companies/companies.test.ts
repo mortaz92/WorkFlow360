@@ -17,6 +17,7 @@ let neoteknaId: string;
 let perluceId: string;
 let neoTtoken: string;
 let perToken: string;
+let neoOperaioToken: string;
 let neoProjectId: string;
 
 const created: { table: string; id: string }[] = [];
@@ -41,6 +42,12 @@ beforeAll(async () => {
   neoTtoken = signAccessToken({ id: neoAdmin.id, email: neoAdmin.email, role: 'admin', companyId: neo.id });
   perToken = signAccessToken({ id: perAdmin.id, email: perAdmin.email, role: 'admin', companyId: per.id });
 
+  const [neoOperaio] = await db
+    .insert(users)
+    .values({ email: 'neo-operaio@x.local', passwordHash, name: 'Neo Operaio', role: 'operaio', companyId: neo.id })
+    .returning();
+  neoOperaioToken = signAccessToken({ id: neoOperaio.id, email: neoOperaio.email, role: 'operaio', companyId: neo.id });
+
   const [proj] = await db.insert(projects).values({ name: 'Cantiere Neo', companyId: neo.id, projectNumber: 1 }).returning();
   neoProjectId = proj.id;
   created.push({ table: 'projects', id: proj.id });
@@ -52,6 +59,7 @@ afterAll(async () => {
   }
   await db.delete(users).where(eq(users.email, 'neo-admin@x.local')).catch(() => {});
   await db.delete(users).where(eq(users.email, 'per-admin@x.local')).catch(() => {});
+  await db.delete(users).where(eq(users.email, 'neo-operaio@x.local')).catch(() => {});
   await db.delete(companies).where(eq(companies.id, neoteknaId)).catch(() => {});
   await db.delete(companies).where(eq(companies.id, perluceId)).catch(() => {});
 });
@@ -106,5 +114,52 @@ describe('Multi-tenant: isolamento aziende', () => {
     expect(resPer.status).toBe(200);
     expect(resNeo.body.companies.find((c: { name: string }) => c.name === NEOTEKNA).id).toBe(neoteknaId);
     expect(resPer.body.companies.find((c: { name: string }) => c.name === PERLUCE).id).toBe(perluceId);
+  });
+});
+
+describe('PATCH /companies/:id — modifica anagrafica azienda', () => {
+  // Nato per un caso reale: il bootstrap del primo admin crea l'azienda con un nome
+  // scelto una volta sola (es. "Azienda Demo" per una prova commerciale) e prima non
+  // c'era alcun modo di correggerlo senza svuotare il database.
+  it("un admin può rinominare la PROPRIA azienda", async () => {
+    const res = await request(app)
+      .patch(`/api/v1/companies/${neoteknaId}`)
+      .set('Authorization', `Bearer ${neoTtoken}`)
+      .send({ name: 'Neotekna SRL (rinominata)' });
+    expect(res.status).toBe(200);
+    expect(res.body.company.name).toBe('Neotekna SRL (rinominata)');
+
+    // Ripristino per non sporcare gli altri test dello stesso describe/file.
+    await request(app)
+      .patch(`/api/v1/companies/${neoteknaId}`)
+      .set('Authorization', `Bearer ${neoTtoken}`)
+      .send({ name: NEOTEKNA });
+  });
+
+  it("un admin NON può modificare l'azienda di un'altra (isolamento -> 404)", async () => {
+    const res = await request(app)
+      .patch(`/api/v1/companies/${perluceId}`)
+      .set('Authorization', `Bearer ${neoTtoken}`)
+      .send({ name: 'Nome rubato' });
+    expect(res.status).toBe(404);
+
+    const check = await request(app).get(`/api/v1/companies/${perluceId}`).set('Authorization', `Bearer ${perToken}`);
+    expect(check.body.company.name).toBe(PERLUCE);
+  });
+
+  it('un operaio non può modificare l\'anagrafica azienda (403)', async () => {
+    const res = await request(app)
+      .patch(`/api/v1/companies/${neoteknaId}`)
+      .set('Authorization', `Bearer ${neoOperaioToken}`)
+      .send({ name: 'Tentativo operaio' });
+    expect(res.status).toBe(403);
+  });
+
+  it('body senza campi -> 400 (nessuna modifica implicita)', async () => {
+    const res = await request(app)
+      .patch(`/api/v1/companies/${neoteknaId}`)
+      .set('Authorization', `Bearer ${neoTtoken}`)
+      .send({});
+    expect(res.status).toBe(400);
   });
 });
