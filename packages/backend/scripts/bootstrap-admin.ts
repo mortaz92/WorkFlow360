@@ -100,7 +100,7 @@ function readInput(): BootstrapInput {
   // .toLowerCase() dentro emailSchema, non solo .email(): un'email creata con un case
   // diverso da quello poi digitato al login fallirebbe con "credenziali non valide"
   // (Postgres confronta stringhe exact-match) — bug reale, riprodotto col primo admin
-  // creato in produzione il 20/08 (creato con una maiuscola nel dominio, login con
+  // creato in produzione il 21/08 (creato con una maiuscola nel dominio, login con
   // dominio minuscolo rifiutato).
   const emailResult = emailSchema.safeParse(raw.adminEmail);
   if (!emailResult.success) {

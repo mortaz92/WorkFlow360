@@ -7,7 +7,7 @@ import { z } from 'zod';
 // "diversi" da Postgres (confronto case-sensitive di default), mentre per un umano
 // sono lo stesso indirizzo: un login con l'email scritta in un case diverso da quello
 // salvato in fase di creazione falliva con "credenziali non valide" — bug reale,
-// riprodotto con il primo utente creato in produzione (20/08).
+// riprodotto con il primo utente creato in produzione (21/08).
 export const emailSchema = z
   .string()
   .trim()
