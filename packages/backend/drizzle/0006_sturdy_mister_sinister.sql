@@ -1,0 +1,1 @@
+ALTER TABLE "time_logs" ADD COLUMN "end_time" time;
