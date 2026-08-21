@@ -4,6 +4,18 @@ EXCEPTION
  WHEN duplicate_object THEN null;
 END $$;
 --> statement-breakpoint
+-- Aggiunto in una sessione successiva (non nella generazione originale di drizzle-kit):
+-- questa migrazione usa "tipo_commessa" alla riga sotto senza mai crearlo. Sul database
+-- di sviluppo il tipo esisteva già (creato a mano, prima che il progetto avesse migrazioni
+-- vere), quindi il difetto non si vedeva mai localmente — un database nuovo (es. il primo
+-- deploy su Render) falliva con "type tipo_commessa does not exist". DO/EXCEPTION invece
+-- di IF NOT EXISTS: Postgres non supporta IF NOT EXISTS su CREATE TYPE.
+DO $$ BEGIN
+ CREATE TYPE "public"."tipo_commessa" AS ENUM('contratto', 'consuntivo');
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
 ALTER TYPE "user_role" ADD VALUE 'operaio';--> statement-breakpoint
 CREATE TABLE IF NOT EXISTS "companies" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
