@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api, getCurrentUser } from '../lib/api';
 import type { TimeLogTipo, UserRole, UserSummary, UserTimeLogDetail } from '../lib/types';
@@ -6,8 +6,54 @@ import { ArrowLeftIcon, ClockIcon, MailIcon, UsersIcon } from '../components/ico
 import { badgeClassForTipo, etichettaCantiere, formatDate, formatHours, TIPI_ORDER, USER_ROLE_LABELS } from '../lib/format';
 import { groupTimeLogsByDayAndTask } from '../lib/groupTimeLogs';
 import TimeLogEditForm from '../components/TimeLogEditForm';
+import {
+  Button,
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  EmptyState,
+  Input,
+  Select,
+  type SelectOption,
+} from '../components/ui';
 
 const ROLES: UserRole[] = ['admin', 'project_manager', 'operaio'];
+
+const ROLE_OPTIONS: SelectOption[] = ROLES.map((r) => ({ value: r, label: USER_ROLE_LABELS[r] }));
+
+// Classi ricorrenti del design system, scritte una volta sola invece di ripeterle a ogni
+// occorrenza. Volutamente ricopiate da DashboardPage e NON estratte in un modulo condiviso:
+// la migrazione grafica delle altre pagine è in corso in parallelo, un file comune va
+// introdotto in un unico passaggio di consolidamento quando tutte saranno migrate.
+const LINK_DETTAGLIO =
+  'flex items-center gap-1 text-sm font-medium text-primary-600 transition-colors hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300';
+
+const ALERT_ERRORE =
+  'rounded-lg border border-danger-200 bg-danger-50 px-3 py-2.5 text-sm font-medium text-danger-600 dark:border-danger-800 dark:bg-danger-900/30 dark:text-danger-400';
+
+// La Cronologia ore non usa il componente Table condiviso: ogni gruppo può espandersi in
+// una seconda riga con le singole registrazioni (due <tr> per elemento), forma che quel
+// componente — una riga per dato — non sa esprimere. La tabella resta quindi scritta a
+// mano, ma con gli stessi colori/spaziature di Table per non stonare col resto dell'app.
+const INTESTAZIONE_COLONNA = 'px-4 py-3 text-xs font-semibold tracking-wider text-surface-500 uppercase';
+
+const RIGA_TABELLA =
+  'border-b border-surface-200 last:border-none hover:bg-surface-50 dark:border-surface-700 dark:hover:bg-surface-900/50';
+
+// KPI tile: etichetta + numero grande. Stessa struttura per tutte e tre le tessere (la
+// terza senza icona), quindi scritta una volta sola invece di tre blocchi identici.
+function StatTile({ icon, label, value }: { icon?: ReactNode; label: string; value: ReactNode }) {
+  return (
+    <Card padding="sm" className="flex flex-col gap-1">
+      <span className="flex items-center gap-1.5 text-sm font-medium text-surface-500 dark:text-surface-400">
+        {icon}
+        {label}
+      </span>
+      <span className="text-3xl font-bold text-surface-900 dark:text-surface-100">{value}</span>
+    </Card>
+  );
+}
 
 export default function DipendenteDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -80,47 +126,42 @@ export default function DipendenteDetailPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <Link to="/dipendenti" className="list-link w-fit">
+      <Link to="/dipendenti" className={`${LINK_DETTAGLIO} w-fit`}>
         <ArrowLeftIcon /> Dipendenti
       </Link>
 
-      {error && <div className="alert">{error}</div>}
-      {loading && <p className="muted">Caricamento…</p>}
+      {error && (
+        <div className={ALERT_ERRORE} role="alert">
+          {error}
+        </div>
+      )}
+      {loading && <p className="text-sm text-surface-500 dark:text-surface-400">Caricamento…</p>}
 
       {detail && (
         <>
           <div>
             <div className="flex flex-wrap items-center gap-2">
-              <h1 className="m-0 text-2xl font-semibold text-gray-900">{detail.userName}</h1>
+              <h1 className="m-0 text-2xl font-semibold text-surface-900 dark:text-surface-100">{detail.userName}</h1>
               {user && <UserEditForm user={user} onSaved={load} />}
             </div>
-            <p className="mt-1 flex items-center gap-1 text-sm text-gray-500">
+            <p className="mt-1 flex items-center gap-1 text-sm text-surface-500 dark:text-surface-400">
               <MailIcon className="h-4 w-4" /> {detail.userEmail}
             </p>
           </div>
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-            <div className="stat-tile">
-              <span className="stat-label">
-                <ClockIcon className="h-4 w-4" /> Ore totali registrate
-              </span>
-              <span className="stat-value">{formatHours(detail.totalHours)}</span>
-            </div>
-            <div className="stat-tile">
-              <span className="stat-label">
-                <UsersIcon className="h-4 w-4" /> Cantieri diversi
-              </span>
-              <span className="stat-value">{cantieriDiversi}</span>
-            </div>
-            <div className="stat-tile">
-              <span className="stat-label">Registrazioni</span>
-              <span className="stat-value">{detail.logCount}</span>
-            </div>
+            <StatTile
+              icon={<ClockIcon className="h-4 w-4" />}
+              label="Ore totali registrate"
+              value={formatHours(detail.totalHours)}
+            />
+            <StatTile icon={<UsersIcon className="h-4 w-4" />} label="Cantieri diversi" value={cantieriDiversi} />
+            <StatTile label="Registrazioni" value={detail.logCount} />
           </div>
 
           {hoursByTipo && (
             <div className="flex flex-wrap items-center gap-2">
-              <span className="text-xs font-medium text-gray-500">Ore per tipo:</span>
+              <span className="text-xs font-medium text-surface-500 dark:text-surface-400">Ore per tipo:</span>
               {TIPI_ORDER.map((tipo) => (
                 <span key={tipo} className={badgeClassForTipo(tipo)}>
                   {tipo} {formatHours(hoursByTipo[tipo])}h
@@ -129,99 +170,119 @@ export default function DipendenteDetailPage() {
             </div>
           )}
 
-          <section className="card">
-            <h2>Cronologia ore</h2>
-            {groups.length === 0 ? (
-              <p className="muted">Nessuna ora registrata.</p>
-            ) : (
-              <div className="overflow-x-auto rounded-lg border border-gray-200">
-                <table className="w-full border-collapse text-sm">
-                  <thead>
-                    <tr className="border-b border-gray-200 bg-gray-50 text-left">
-                      <th className="px-4 py-3 text-xs font-semibold tracking-wide text-gray-500 uppercase">Data</th>
-                      <th className="px-4 py-3 text-xs font-semibold tracking-wide text-gray-500 uppercase">Cantiere</th>
-                      <th className="px-4 py-3 text-xs font-semibold tracking-wide text-gray-500 uppercase">Lavoro</th>
-                      <th className="px-4 py-3 text-xs font-semibold tracking-wide text-gray-500 uppercase">Ore per tipo</th>
-                      <th className="px-4 py-3 text-xs font-semibold tracking-wide text-gray-500 uppercase">Totale</th>
-                      <th className="px-4 py-3 no-print" />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {groups.map((g) => {
-                      const key = `${g.date}|${g.taskId}`;
-                      const isExpanded = expandedKey === key;
-                      return (
-                        <Fragment key={key}>
-                          <tr className="border-b border-gray-200 last:border-none hover:bg-gray-50">
-                            <td className="px-4 py-3 text-gray-700">{formatDate(g.date)}</td>
-                            <td className="px-4 py-3">
-                              <Link to={`/cantieri/${g.projectId}`} className="font-medium text-blue-600 hover:text-blue-700">
-                                {etichettaCantiere(g.code, g.projectNumber, g.tipoCommessa)} {g.projectName}
-                              </Link>
-                            </td>
-                            <td className="px-4 py-3 text-gray-700">{g.taskTitle}</td>
-                            <td className="px-4 py-3">
-                              <div className="flex flex-wrap gap-1">
-                                {TIPI_ORDER.filter((tipo) => g.hoursByTipo[tipo]).map((tipo) => (
-                                  <span key={tipo} className={badgeClassForTipo(tipo)}>
-                                    {tipo} {formatHours(g.hoursByTipo[tipo]!)}h
-                                  </span>
-                                ))}
-                              </div>
-                            </td>
-                            <td className="px-4 py-3 font-medium text-gray-900">{formatHours(g.totalHours)}</td>
-                            <td className="px-4 py-3 text-right no-print">
-                              <button
-                                type="button"
-                                className="btn-ghost px-2"
-                                onClick={() => setExpandedKey(isExpanded ? null : key)}
-                              >
-                                {isExpanded ? 'Chiudi' : g.entries.length > 1 ? `Dettaglio (${g.entries.length})` : 'Dettaglio'}
-                              </button>
-                            </td>
-                          </tr>
-                          {isExpanded && (
-                            <tr className="border-b border-gray-200 last:border-none no-print">
-                              <td className="bg-gray-50 px-4 py-3" colSpan={6}>
-                                <ul className="flex flex-col gap-2">
-                                  {g.entries.map((t) => (
-                                    <li key={t.id} className="flex flex-col gap-1.5 rounded-md border border-gray-200 bg-white p-3">
-                                      <div className="flex items-center justify-between gap-2">
-                                        <span className={badgeClassForTipo(t.tipo)}>{t.tipo}</span>
-                                        <span className="font-medium text-gray-900">{formatHours(t.hoursWorked)}h</span>
-                                        <button
-                                          type="button"
-                                          className="btn-ghost px-2"
-                                          onClick={() => setEditingId(editingId === t.id ? null : t.id)}
-                                        >
-                                          {editingId === t.id ? 'Chiudi' : 'Modifica'}
-                                        </button>
-                                      </div>
-                                      {t.workDescription && <span className="muted text-sm">{t.workDescription}</span>}
-                                      {editingId === t.id && (
-                                        <TimeLogEditForm
-                                          timeLog={{ id: t.id, taskId: t.taskId, userId: detail.userId, tipo: t.tipo, hoursWorked: t.hoursWorked, date: t.date }}
-                                          onSaved={() => {
-                                            setEditingId(null);
-                                            setExpandedKey(null);
-                                            load();
-                                          }}
-                                        />
-                                      )}
-                                    </li>
+          <Card>
+            <CardHeader>
+              <CardTitle>Cronologia ore</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {groups.length === 0 ? (
+                <EmptyState title="Nessuna ora registrata" icon={<ClockIcon className="h-10 w-10" />} />
+              ) : (
+                <div className="overflow-x-auto rounded-xl border border-surface-200 bg-white dark:border-surface-700 dark:bg-surface-800">
+                  <table className="w-full border-collapse text-sm">
+                    <thead className="bg-surface-50 dark:bg-surface-900/50">
+                      <tr className="border-b border-surface-200 text-left dark:border-surface-700">
+                        <th className={INTESTAZIONE_COLONNA}>Data</th>
+                        <th className={INTESTAZIONE_COLONNA}>Cantiere</th>
+                        <th className={INTESTAZIONE_COLONNA}>Lavoro</th>
+                        <th className={INTESTAZIONE_COLONNA}>Ore per tipo</th>
+                        <th className={INTESTAZIONE_COLONNA}>Totale</th>
+                        <th className="px-4 py-3 no-print" />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {groups.map((g) => {
+                        const key = `${g.date}|${g.taskId}`;
+                        const isExpanded = expandedKey === key;
+                        return (
+                          <Fragment key={key}>
+                            <tr className={RIGA_TABELLA}>
+                              <td className="px-4 py-3 text-surface-700 dark:text-surface-300">{formatDate(g.date)}</td>
+                              <td className="px-4 py-3">
+                                <Link
+                                  to={`/cantieri/${g.projectId}`}
+                                  className="font-medium text-primary-600 transition-colors hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300"
+                                >
+                                  {etichettaCantiere(g.code, g.projectNumber, g.tipoCommessa)} {g.projectName}
+                                </Link>
+                              </td>
+                              <td className="px-4 py-3 text-surface-700 dark:text-surface-300">{g.taskTitle}</td>
+                              <td className="px-4 py-3">
+                                <div className="flex flex-wrap gap-1">
+                                  {TIPI_ORDER.filter((tipo) => g.hoursByTipo[tipo]).map((tipo) => (
+                                    <span key={tipo} className={badgeClassForTipo(tipo)}>
+                                      {tipo} {formatHours(g.hoursByTipo[tipo]!)}h
+                                    </span>
                                   ))}
-                                </ul>
+                                </div>
+                              </td>
+                              <td className="px-4 py-3 font-medium text-surface-900 dark:text-surface-100">
+                                {formatHours(g.totalHours)}
+                              </td>
+                              <td className="px-4 py-3 text-right no-print">
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => setExpandedKey(isExpanded ? null : key)}
+                                >
+                                  {isExpanded ? 'Chiudi' : g.entries.length > 1 ? `Dettaglio (${g.entries.length})` : 'Dettaglio'}
+                                </Button>
                               </td>
                             </tr>
-                          )}
-                        </Fragment>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </section>
+                            {isExpanded && (
+                              <tr className="border-b border-surface-200 last:border-none no-print dark:border-surface-700">
+                                <td className="bg-surface-50 px-4 py-3 dark:bg-surface-900/50" colSpan={6}>
+                                  <ul className="m-0 flex list-none flex-col gap-2 p-0">
+                                    {g.entries.map((t) => (
+                                      <li
+                                        key={t.id}
+                                        className="flex flex-col gap-1.5 rounded-lg border border-surface-200 bg-white p-3 dark:border-surface-700 dark:bg-surface-800"
+                                      >
+                                        <div className="flex items-center justify-between gap-2">
+                                          <span className={badgeClassForTipo(t.tipo)}>{t.tipo}</span>
+                                          <span className="font-medium text-surface-900 dark:text-surface-100">
+                                            {formatHours(t.hoursWorked)}h
+                                          </span>
+                                          <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="sm"
+                                            onClick={() => setEditingId(editingId === t.id ? null : t.id)}
+                                          >
+                                            {editingId === t.id ? 'Chiudi' : 'Modifica'}
+                                          </Button>
+                                        </div>
+                                        {t.workDescription && (
+                                          <span className="text-sm text-surface-500 dark:text-surface-400">
+                                            {t.workDescription}
+                                          </span>
+                                        )}
+                                        {editingId === t.id && (
+                                          <TimeLogEditForm
+                                            timeLog={{ id: t.id, taskId: t.taskId, userId: detail.userId, tipo: t.tipo, hoursWorked: t.hoursWorked, date: t.date }}
+                                            onSaved={() => {
+                                              setEditingId(null);
+                                              setExpandedKey(null);
+                                              load();
+                                            }}
+                                          />
+                                        )}
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </td>
+                              </tr>
+                            )}
+                          </Fragment>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </>
       )}
     </div>
@@ -265,46 +326,52 @@ function UserEditForm({ user, onSaved }: { user: UserSummary; onSaved: () => voi
 
   if (!editing) {
     return (
-      <button type="button" className="btn-ghost" onClick={() => syncAndToggle(true)}>
+      <Button type="button" variant="ghost" size="sm" onClick={() => syncAndToggle(true)}>
         Modifica
-      </button>
+      </Button>
     );
   }
 
   return (
-    <div className="inline-form w-full basis-full">
-      <h3>Modifica dipendente</h3>
-      {error && <div className="alert">{error}</div>}
-      <label htmlFor="dip-edit-nome">Nome</label>
-      <input id="dip-edit-nome" className="field" value={name} onChange={(e) => setName(e.target.value)} required />
-      <label htmlFor="dip-edit-email">Email</label>
-      <input
+    <div className="mt-4 flex w-full basis-full flex-col gap-3 border-t border-surface-200 pt-4 dark:border-surface-700">
+      <h3 className="m-0 text-sm font-semibold text-surface-900 dark:text-surface-100">Modifica dipendente</h3>
+      {error && (
+        <div className={ALERT_ERRORE} role="alert">
+          {error}
+        </div>
+      )}
+      <Input id="dip-edit-nome" label="Nome" value={name} onChange={(e) => setName(e.target.value)} required />
+      <Input
         id="dip-edit-email"
-        className="field"
+        label="Email"
         type="email"
         value={email}
         onChange={(e) => setEmail(e.target.value)}
         required
       />
-      <label htmlFor="dip-edit-ruolo">Ruolo</label>
-      <select id="dip-edit-ruolo" className="field" value={role} onChange={(e) => setRole(e.target.value as UserRole)}>
-        {ROLES.map((r) => (
-          <option key={r} value={r}>
-            {USER_ROLE_LABELS[r]}
-          </option>
-        ))}
-      </select>
-      <label className="flex items-center gap-2">
-        <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />
-        Attivo
+      <Select
+        id="dip-edit-ruolo"
+        label="Ruolo"
+        options={ROLE_OPTIONS}
+        value={role}
+        onChange={(e) => setRole(e.target.value as UserRole)}
+      />
+      <label className="flex cursor-pointer items-center gap-2">
+        <input
+          type="checkbox"
+          checked={active}
+          onChange={(e) => setActive(e.target.checked)}
+          className="h-4 w-4 rounded border-surface-300 text-primary-600 focus:ring-primary-500"
+        />
+        <span className="text-sm text-surface-600 dark:text-surface-400">Attivo</span>
       </label>
       <div className="flex gap-2">
-        <button className="btn-primary" disabled={busy} type="button" onClick={save}>
-          {busy ? '…' : 'Salva'}
-        </button>
-        <button className="btn-ghost" disabled={busy} type="button" onClick={() => syncAndToggle(false)}>
+        <Button type="button" variant="primary" loading={busy} onClick={save}>
+          Salva
+        </Button>
+        <Button type="button" variant="ghost" disabled={busy} onClick={() => syncAndToggle(false)}>
           Annulla
-        </button>
+        </Button>
       </div>
     </div>
   );

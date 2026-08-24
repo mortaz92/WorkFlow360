@@ -28,6 +28,24 @@ Contenuto del lavoro non salvato — un restyle UI significativo:
 
 **Non ancora fatto**: nessun commit. Per la regola del progetto (REGOLA PUBBLICAZIONE) commit/push passano sempre da conferma esplicita dell'utente — in attesa.
 
+## Estensione del restyle a tutta l'app (24/08, stessa sessione) — COMPLETATA
+
+Dopo il commit `c9198f0` (solo login/password), l'utente ha chiesto di estendere il design system al resto dell'app (bottoni: "Estendi a tutta l'app ora" + "Sì, prepara il commit"). Lanciati 5 agenti `developer` in parallelo, ciascuno su file non sovrapposti (mappatura fatta a mano leggendo gli import reali, non presunta): Dashboard (solo), Cantieri (CantieriPage+CantiereDetailPage+RegistroCantiere), Dipendenti (DipendentiPage+DipendenteDetailPage+TimeLogEditForm), Report/Archivio (ReportPage+ArchivioPage+TabellaOre condiviso), Operaio (solo, 631 righe).
+
+**Due interruzioni prima del successo**: un primo giro è morto con errori "ENOTFOUND" su tutti e 5 (poi capito essere un crash dell'intero processo Claude Code, non un problema di rete — verificato con `git status` che nessun agente aveva scritto nulla su disco, nessun lavoro perso); un secondo giro (4 dei 5, uno dimenticato nel retry) è morto con "hit your session limit, resets 2:40pm (Europe/Rome)" — un vero limite di utilizzo, non un errore transiente. Aspettato che l'orologio locale superasse quell'orario, poi rilanciati tutti e 5 con successo.
+
+**Bug reale trovato e corretto centralmente PRIMA che si propagasse**: l'agente Dashboard (il primo a finire) ha scoperto che `Input.tsx`/`Select.tsx`/`Textarea.tsx` in `components/ui/` non avevano MAI un bordo visibile — il preflight di Tailwind v4 azzera `border-width` di default (`border: 0 solid` su `*`), e questi 3 componenti impostavano solo il *colore* del bordo (`border-surface-300`), mai la classe `border` che ne imposta lo spessore. Verificato personalmente leggendo `node_modules/tailwindcss/preflight.css` prima di fidarmi. **Corretto in `components/ui/Input.tsx`, `Select.tsx`, `Textarea.tsx`** (aggiunta la classe `border` a `baseStyles` in tutti e tre) prima di rilanciare gli altri 4 agenti, così nessuno ha dovuto lavorarci attorno pagina per pagina. Bug preesistente dal 22/08, quindi presente anche nelle pagine login/password già committate in `c9198f0` — ora risolto per tutte.
+
+**Secondo bug reale trovato (dall'agente Report/Archivio) e corretto centralmente**: in stampa (Report/Archivio sono le uniche pagine stampate davvero), il tema scuro del sistema operativo resta attivo nel PDF del browser — quindi testo quasi bianco (`dark:text-surface-100` e simili) su una pagina di stampa che i browser rendono comunque bianca (tolgono gli sfondi di default, ma non i colori del testo) → testo invisibile. **Corretto in `packages/frontend/src/index.css`** dentro `@media print`: forzato `color: #111827 !important` + `background-color: transparent !important` su tutto, più bordi tabella grigi fissi. Si perde la codifica a colori dei badge in stampa, accettato come compromesso: leggibilità sempre garantita è la priorità.
+
+**Tutti e 5 gli agenti hanno finito con `npx tsc --noEmit` pulito** sui propri file, e la build centrale finale (`npm run build --workspace=packages/frontend`) è pulita su tutto: `tsc -b` + `vite build`, 64 moduli, nessun errore. `git status` conferma esattamente i 15 file attesi modificati (nessuna sovrapposizione a sorpresa tra agenti).
+
+**Non fatto deliberatamente — segnalato, non eseguito** (REGOLA ORDINE: si segnala a consegna, non si rifattorizza di propria iniziativa mentre il rischio di regressione è concreto): le costanti di stile (`ALERT_ERRORE`, `RIGA_ELENCO`, `LINK_DETTAGLIO`, `TESTO_ATTENUATO`, ecc.) sono duplicate in 10 file — ben oltre la soglia di 3 casi reali del progetto per estrarre un'astrazione condivisa. **Verificato però che NON sono tutte byte-identiche** (es. `RIGA_ELENCO` ha `p-3`+`shadow-card` in Dashboard/Operaio ma non in CantieriPage, che ha spostato il padding sul `<Link>` esterno) — un consolidamento va fatto con attenzione, confrontando ogni valore prima di unificarlo, non con un find-and-replace. Consigliato `/ordina` come sessione dedicata futura.
+
+**Non verificato dal vivo nel browser**: tentato avvio di Docker Desktop per un giro di login reale, non partito in tempo ragionevole (90s) — abbandonato, non insistito oltre. La verifica di questa estensione resta quindi statica (build, tipi, revisione riga per riga di ogni agente sul proprio diff), non visiva. Le pagine login/password del commit precedente erano invece state verificate dal vivo nel browser.
+
+**Prossimo passo**: preparare un secondo commit (tramite agente devops) per questi 15 file, poi chiedere conferma esplicita all'utente per il push di ENTRAMBI i commit insieme.
+
 
 **Data e ora salvataggio:** 21/08/2026, dopo il primo DEPLOY REALE su Render (successo) + fix post-deploy
 

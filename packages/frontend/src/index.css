@@ -71,19 +71,19 @@
   }
 
   .badge-contratto {
-    @apply bg-blue-100 text-blue-800;
+    @apply bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300;
   }
 
   .badge-consuntivo {
-    @apply bg-yellow-100 text-amber-800;
+    @apply bg-yellow-100 text-amber-800 dark:bg-yellow-900/30 dark:text-amber-300;
   }
 
   .badge-role {
-    @apply bg-indigo-100 text-indigo-800;
+    @apply bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-300;
   }
 
   .badge-warning {
-    @apply bg-amber-100 text-amber-800;
+    @apply bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300;
   }
 
   /* Un colore diverso per ciascuno dei 6 tipi di ora — prima straordinario/notturno/
@@ -92,27 +92,27 @@
      Cronologia dipendente). ordinario resta neutro (il lavoro "normale", nessuna
      eccezione da segnalare); gli altri 5 hanno ciascuno una tinta propria. */
   .badge-ordinario {
-    @apply bg-slate-100 text-slate-700;
+    @apply bg-slate-100 text-slate-700 dark:bg-slate-800/50 dark:text-slate-300;
   }
 
   .badge-straordinario {
-    @apply bg-orange-100 text-orange-800;
+    @apply bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300;
   }
 
   .badge-notturno {
-    @apply bg-violet-100 text-violet-800;
+    @apply bg-violet-100 text-violet-800 dark:bg-violet-900/30 dark:text-violet-300;
   }
 
   .badge-festivo {
-    @apply bg-rose-100 text-rose-800;
+    @apply bg-rose-100 text-rose-800 dark:bg-rose-900/30 dark:text-rose-300;
   }
 
   .badge-permesso {
-    @apply bg-amber-100 text-amber-800;
+    @apply bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300;
   }
 
   .badge-ferie {
-    @apply bg-teal-100 text-teal-800;
+    @apply bg-teal-100 text-teal-800 dark:bg-teal-900/30 dark:text-teal-300;
   }
 
   .inline-form {
@@ -156,29 +156,29 @@
   /* Stato del cantiere: coerente per colore con il resto della palette
      (grigio=in attesa, blu=in corso, verde=completato, rosso=bloccato). */
   .badge-pending {
-    @apply bg-gray-100 text-gray-700;
+    @apply bg-gray-100 text-gray-700 dark:bg-gray-800/50 dark:text-gray-300;
   }
 
   .badge-in_progress {
-    @apply bg-blue-100 text-blue-800;
+    @apply bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300;
   }
 
   .badge-completed {
-    @apply bg-emerald-100 text-emerald-800;
+    @apply bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300;
   }
 
   .badge-blocked {
-    @apply bg-red-100 text-red-700;
+    @apply bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300;
   }
 
   /* Gravità di una segnalazione (corrections): low/medium riusano badge-pending/
      badge-warning già esistenti, high/critical sono le uniche due nuove. */
   .badge-high {
-    @apply bg-orange-100 text-orange-800;
+    @apply bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300;
   }
 
   .badge-critical {
-    @apply bg-red-100 text-red-700;
+    @apply bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300;
   }
 
   /* Link "vai al dettaglio" ricorrente in liste cliccabili (cantieri, dipendenti). */
@@ -208,5 +208,25 @@
     box-shadow: none !important;
     border: 1px solid #d1d5db !important;
     break-inside: avoid;
+  }
+
+  /* Il tema scuro del sistema operativo resta attivo anche durante la stampa/PDF
+     (i browser non lo disattivano): senza questa regola, il testo chiaro dei
+     componenti del design system (dark:text-surface-100 e simili, pensato per
+     uno sfondo scuro) finirebbe su una pagina bianca — illeggibile. I browser
+     invece tolgono quasi sempre gli sfondi in stampa di default, quindi il
+     rischio concreto è "testo chiaro su pagina bianca", non il contrario.
+     Forza un testo scuro uniforme e uno sfondo trasparente ovunque: si perde
+     la codifica a colori dei badge in stampa, ma il documento resta sempre
+     leggibile, che è la priorità. */
+  * {
+    color: #111827 !important;
+    background-color: transparent !important;
+  }
+
+  table,
+  th,
+  td {
+    border-color: #d1d5db !important;
   }
 }

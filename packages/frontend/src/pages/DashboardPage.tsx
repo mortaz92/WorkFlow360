@@ -1,12 +1,42 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { api, getCurrentUser } from '../lib/api';
 import type { Company, HoursByProjectRow, Project, ProjectsSummary, UserSummary, UserRole } from '../lib/types';
 import { CalendarIcon, ChevronRightIcon, CraneIcon, SearchIcon, UsersIcon } from '../components/icons';
 import { etichettaCantiere, formatHours, formatDate, PROJECT_STATUS_LABELS, USER_ROLE_LABELS } from '../lib/format';
+import {
+  Button,
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  EmptyState,
+  Input,
+  Select,
+  Table,
+  type Column,
+  type SelectOption,
+} from '../components/ui';
 
 const RECENT_PROJECTS_LIMIT = 5;
 const TOP_PROJECTS_LIMIT = 5;
+
+// Classi ricorrenti del design system, scritte una volta sola invece di ripeterle in
+// ogni punto in cui compaiono (link "Dettagli", righe di elenco, riquadri di errore).
+const LINK_DETTAGLIO =
+  'flex items-center gap-1 text-sm font-medium text-primary-600 transition-colors hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300';
+
+const RIGA_ELENCO =
+  'rounded-lg border border-surface-200 bg-white p-3 transition-shadow hover:shadow-card dark:border-surface-700 dark:bg-surface-800';
+
+const ALERT_ERRORE =
+  'rounded-lg border border-danger-200 bg-danger-50 px-3 py-2.5 text-sm font-medium text-danger-600 dark:border-danger-800 dark:bg-danger-900/30 dark:text-danger-400';
+
+// Input/Select del design system impostano solo il COLORE del bordo: il preflight di
+// Tailwind v4 azzera border-width su ogni elemento, quindi senza questa classe il campo
+// resterebbe senza contorno visibile. Aggiunta qui via className del componente, per non
+// toccare i componenti condivisi (usati anche dalle pagine di login).
+const BORDO_CAMPO = 'border';
 
 // Ordinario+straordinario+notturno+festivo, ESCLUSE ferie/permesso: coerente con la
 // stessa distinzione già fatta in OperaioPage e nella decisione sull'Archivio Cantieri
@@ -25,6 +55,68 @@ function initials(name: string): string {
     .map((part) => part[0]?.toUpperCase())
     .join('');
 }
+
+// KPI tile: numero grande + etichetta dentro una Card cliccabile. Stessa struttura per
+// tutte e tre le tessere, quindi una sola volta qui invece di tre blocchi identici.
+function StatTile({ to, icon, value, label }: { to: string; icon: ReactNode; value: ReactNode; label: string }) {
+  return (
+    <Link
+      to={to}
+      className="rounded-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-surface-950"
+    >
+      <Card variant="interactive" padding="sm" className="flex h-full flex-col gap-1">
+        <span className="mb-2 flex h-11 w-11 items-center justify-center rounded-full bg-primary-600 text-white">
+          {icon}
+        </span>
+        <span className="text-3xl font-bold text-surface-900 dark:text-surface-100">{value}</span>
+        <span className="text-sm font-medium text-surface-500 dark:text-surface-400">{label}</span>
+      </Card>
+    </Link>
+  );
+}
+
+const COLONNE_CANTIERI: Column<Project>[] = [
+  {
+    key: 'numero',
+    header: 'N. Cantiere',
+    className: 'font-mono font-semibold',
+    render: (p) => etichettaCantiere(p.code, p.projectNumber, p.tipoCommessa),
+  },
+  {
+    key: 'nome',
+    header: 'Nome cantiere',
+    className: 'font-medium',
+    render: (p) => p.name,
+  },
+  {
+    key: 'stato',
+    header: 'Stato',
+    render: (p) => <span className={`badge badge-${p.status} ml-0`}>{PROJECT_STATUS_LABELS[p.status]}</span>,
+  },
+  {
+    key: 'creato',
+    header: 'Data di creazione',
+    // Colore attenuato messo sullo <span> interno e non sulla cella: la <td> del
+    // componente Table porta già un text-* proprio, due utility dello stesso tipo sullo
+    // stesso elemento si contendono la precedenza in base all'ordine del CSS generato.
+    render: (p) => (
+      <span className="flex items-center gap-1.5 text-surface-500 dark:text-surface-400">
+        <CalendarIcon className="h-4 w-4" />
+        {formatDate(p.createdAt)}
+      </span>
+    ),
+  },
+  {
+    key: 'azioni',
+    header: '',
+    className: 'text-right',
+    render: (p) => (
+      <Link to={`/cantieri/${p.id}`} className={`${LINK_DETTAGLIO} justify-end`}>
+        Dettagli <ChevronRightIcon />
+      </Link>
+    ),
+  },
+];
 
 export default function DashboardPage() {
   // GET /companies restituisce il catalogo GLOBALE (tutte le aziende, non solo la
@@ -90,160 +182,152 @@ export default function DashboardPage() {
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h1 className="m-0 text-2xl font-semibold text-gray-900">Dashboard</h1>
-          {company && <p className="mt-1 text-sm text-gray-500">{company.name}</p>}
+          <h1 className="m-0 text-2xl font-semibold text-surface-900 dark:text-surface-100">Dashboard</h1>
+          {company && <p className="mt-1 text-sm text-surface-500 dark:text-surface-400">{company.name}</p>}
         </div>
         {displayName && (
           <div className="flex items-center gap-2.5">
-            <span className="flex h-9 w-9 items-center justify-center rounded-full bg-blue-600 text-sm font-semibold text-white">
+            <span className="flex h-9 w-9 items-center justify-center rounded-full bg-primary-600 text-sm font-semibold text-white">
               {initials(displayName)}
             </span>
-            <span className="text-sm font-medium text-gray-900">{displayName}</span>
+            <span className="text-sm font-medium text-surface-900 dark:text-surface-100">{displayName}</span>
           </div>
         )}
       </div>
 
-      {error && <div className="alert">{error}</div>}
-      {loading && <p className="muted">Caricamento…</p>}
+      {error && (
+        <div className={ALERT_ERRORE} role="alert">
+          {error}
+        </div>
+      )}
+      {loading && <p className="text-sm text-surface-500 dark:text-surface-400">Caricamento…</p>}
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-3">
-        <Link to="/cantieri" className="stat-tile transition-shadow hover:shadow-md">
-          <span className="stat-icon">
-            <CraneIcon className="h-5 w-5" />
-          </span>
-          <span className="stat-value">{projectsSummary?.byTipo.consuntivo ?? '…'}</span>
-          <span className="stat-label">Cantieri consuntivo</span>
-        </Link>
-        <Link to="/cantieri" className="stat-tile transition-shadow hover:shadow-md">
-          <span className="stat-icon">
-            <CraneIcon className="h-5 w-5" />
-          </span>
-          <span className="stat-value">{projectsSummary?.byTipo.contratto ?? '…'}</span>
-          <span className="stat-label">Cantieri a contratto</span>
-        </Link>
-        <Link to="/dipendenti" className="stat-tile transition-shadow hover:shadow-md">
-          <span className="stat-icon">
-            <UsersIcon className="h-5 w-5" />
-          </span>
-          <span className="stat-value">{users.filter((u) => u.role === 'operaio').length}</span>
-          {/* Solo il ruolo "operaio" lavora davvero in cantiere: il conteggio totale
-              utenti (admin/PM/resource/qa/stakeholder inclusi) vive già sotto in
-              "Utenti" — qui deve corrispondere a chi si vede aprendo /dipendenti. */}
-          <span className="stat-label">Dipendenti (operai)</span>
-        </Link>
+        <StatTile
+          to="/cantieri"
+          icon={<CraneIcon className="h-5 w-5" />}
+          value={projectsSummary?.byTipo.consuntivo ?? '…'}
+          label="Cantieri consuntivo"
+        />
+        <StatTile
+          to="/cantieri"
+          icon={<CraneIcon className="h-5 w-5" />}
+          value={projectsSummary?.byTipo.contratto ?? '…'}
+          label="Cantieri a contratto"
+        />
+        {/* Solo il ruolo "operaio" lavora davvero in cantiere: il conteggio totale
+            utenti (admin/PM/resource/qa/stakeholder inclusi) vive già sotto in
+            "Utenti" — qui deve corrispondere a chi si vede aprendo /dipendenti. */}
+        <StatTile
+          to="/dipendenti"
+          icon={<UsersIcon className="h-5 w-5" />}
+          value={users.filter((u) => u.role === 'operaio').length}
+          label="Dipendenti (operai)"
+        />
       </div>
 
       {topProjects.length > 0 && (
-        <section className="card">
-          <h2>Cantieri per ore lavorate</h2>
-          <ul className="list">
-            {topProjects.map((p, i) => {
-              const max = workedHours(topProjects[0]) || 1;
-              const pct = Math.max(4, Math.round((workedHours(p) / max) * 100));
-              return (
-                <li key={p.projectId} className="list-item flex flex-col gap-2">
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="font-medium text-gray-900">
-                      {i + 1}. {p.projectName}
-                    </span>
-                    <span className="flex shrink-0 items-center gap-3">
-                      <span className="text-sm font-semibold text-gray-700">{formatHours(workedHours(p))}h</span>
-                      <Link to={`/cantieri/${p.projectId}`} className="list-link">
-                        Dettagli <ChevronRightIcon />
-                      </Link>
-                    </span>
-                  </div>
-                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-gray-100">
-                    <div className="h-full rounded-full bg-blue-600" style={{ width: `${pct}%` }} />
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-        </section>
+        <Card>
+          <CardHeader>
+            <CardTitle>Cantieri per ore lavorate</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ul className="m-0 flex list-none flex-col gap-2 p-0">
+              {topProjects.map((p, i) => {
+                const max = workedHours(topProjects[0]) || 1;
+                const pct = Math.max(4, Math.round((workedHours(p) / max) * 100));
+                return (
+                  <li key={p.projectId} className={`${RIGA_ELENCO} flex flex-col gap-2`}>
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="font-medium text-surface-900 dark:text-surface-100">
+                        {i + 1}. {p.projectName}
+                      </span>
+                      <span className="flex shrink-0 items-center gap-3">
+                        <span className="text-sm font-semibold text-surface-700 dark:text-surface-300">
+                          {formatHours(workedHours(p))}h
+                        </span>
+                        <Link to={`/cantieri/${p.projectId}`} className={LINK_DETTAGLIO}>
+                          Dettagli <ChevronRightIcon />
+                        </Link>
+                      </span>
+                    </div>
+                    <div className="h-1.5 w-full overflow-hidden rounded-full bg-surface-200 dark:bg-surface-700">
+                      <div className="h-full rounded-full bg-primary-600 dark:bg-primary-500" style={{ width: `${pct}%` }} />
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          </CardContent>
+        </Card>
       )}
 
-      <section className="card">
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-          <h2 className="m-0">Cantieri recenti</h2>
-          <div className="flex items-center gap-3">
-            <div className="relative">
-              <SearchIcon className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-gray-400" />
-              <input
-                className="field w-48 py-2 pl-9 text-sm"
+      <Card>
+        <CardHeader className="flex flex-wrap items-center justify-between gap-3">
+          <CardTitle>Cantieri recenti</CardTitle>
+          <div className="flex w-full items-center gap-3 sm:w-auto">
+            <div className="w-full sm:w-56">
+              <Input
+                id="dashboard-cerca-cantieri"
+                aria-label="Cerca cantieri"
                 placeholder="Cerca cantieri…"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
+                leftIcon={<SearchIcon className="h-4 w-4" />}
+                className={BORDO_CAMPO}
               />
             </div>
-            <Link to="/cantieri" className="list-link shrink-0">
+            <Link to="/cantieri" className={`${LINK_DETTAGLIO} shrink-0`}>
               Vedi tutti
             </Link>
           </div>
-        </div>
+        </CardHeader>
 
-        {filteredRecent.length === 0 && !loading && <p className="muted">Nessun cantiere trovato.</p>}
+        <CardContent>
+          {filteredRecent.length === 0 && !loading && (
+            <EmptyState title="Nessun cantiere trovato" icon={<SearchIcon className="h-10 w-10" />} />
+          )}
 
-        {filteredRecent.length > 0 && (
-          <div className="overflow-x-auto rounded-lg border border-gray-200">
-            <table className="w-full border-collapse text-sm">
-              <thead>
-                <tr className="border-b border-gray-200 bg-gray-50 text-left">
-                  <th className="px-4 py-3 text-xs font-semibold tracking-wide text-gray-500 uppercase">N. Cantiere</th>
-                  <th className="px-4 py-3 text-xs font-semibold tracking-wide text-gray-500 uppercase">Nome cantiere</th>
-                  <th className="px-4 py-3 text-xs font-semibold tracking-wide text-gray-500 uppercase">Stato</th>
-                  <th className="px-4 py-3 text-xs font-semibold tracking-wide text-gray-500 uppercase">Data di creazione</th>
-                  <th className="px-4 py-3" />
-                </tr>
-              </thead>
-              <tbody>
-                {filteredRecent.map((p) => (
-                  <tr key={p.id} className="border-b border-gray-200 last:border-none hover:bg-gray-50">
-                    <td className="px-4 py-3 font-mono font-semibold text-gray-900">{etichettaCantiere(p.code, p.projectNumber, p.tipoCommessa)}</td>
-                    <td className="px-4 py-3 font-medium text-gray-900">{p.name}</td>
-                    <td className="px-4 py-3">
-                      <span className={`badge badge-${p.status} ml-0`}>{PROJECT_STATUS_LABELS[p.status]}</span>
-                    </td>
-                    <td className="px-4 py-3 text-gray-500">
-                      <span className="flex items-center gap-1.5">
-                        <CalendarIcon className="h-4 w-4" />
-                        {formatDate(p.createdAt)}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <Link to={`/cantieri/${p.id}`} className="list-link justify-end">
-                        Dettagli <ChevronRightIcon />
-                      </Link>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
+          {filteredRecent.length > 0 && (
+            <Table
+              columns={COLONNE_CANTIERI}
+              data={filteredRecent}
+              keyExtractor={(p) => p.id}
+              caption="Cantieri recenti"
+            />
+          )}
+        </CardContent>
+      </Card>
 
-      <section className="card">
-        <h2>Utenti ({users.length}/3 admin max)</h2>
-        {users.length === 0 && !loading && <p className="muted">Nessun utente oltre a te.</p>}
-        <ul className="list">
-          {users.map((u) => (
-            <li key={u.id} className="list-item flex items-center justify-between">
-              <div>
-                <strong className="font-medium text-gray-900">{u.name}</strong>{' '}
-                <span className="muted">{u.email}</span>
-              </div>
-              <span className="badge badge-role">{USER_ROLE_LABELS[u.role]}</span>
-            </li>
-          ))}
-        </ul>
-        <NewUserForm onCreated={loadAll} />
-      </section>
+      <Card>
+        <CardHeader>
+          <CardTitle>Utenti ({users.length}/3 admin max)</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {users.length === 0 && !loading && (
+            <EmptyState title="Nessun utente oltre a te" icon={<UsersIcon className="h-10 w-10" />} />
+          )}
+          <ul className="m-0 flex list-none flex-col gap-2 p-0">
+            {users.map((u) => (
+              <li key={u.id} className={`${RIGA_ELENCO} flex items-center justify-between`}>
+                <div>
+                  <strong className="font-medium text-surface-900 dark:text-surface-100">{u.name}</strong>{' '}
+                  <span className="text-sm text-surface-500 dark:text-surface-400">{u.email}</span>
+                </div>
+                <span className="badge badge-role">{USER_ROLE_LABELS[u.role]}</span>
+              </li>
+            ))}
+          </ul>
+          <NewUserForm onCreated={loadAll} />
+        </CardContent>
+      </Card>
     </div>
   );
 }
 
 const ROLES: UserRole[] = ['admin', 'project_manager', 'operaio'];
+
+const ROLE_OPTIONS: SelectOption[] = ROLES.map((r) => ({ value: r, label: USER_ROLE_LABELS[r] }));
 
 function NewUserForm({ onCreated }: { onCreated: () => void }) {
   const [email, setEmail] = useState('');
@@ -272,50 +356,65 @@ function NewUserForm({ onCreated }: { onCreated: () => void }) {
   }
 
   return (
-    <form className="inline-form" onSubmit={submit}>
-      <h3>Nuovo utente</h3>
-      {error && <div className="alert">{error}</div>}
+    <form
+      className="mt-4 flex flex-col gap-3 border-t border-surface-200 pt-4 dark:border-surface-700"
+      onSubmit={submit}
+    >
+      <h3 className="m-0 text-sm font-semibold text-surface-900 dark:text-surface-100">Nuovo utente</h3>
+      {error && (
+        <div className={ALERT_ERRORE} role="alert">
+          {error}
+        </div>
+      )}
       {/* autoComplete="off": senza, Chrome suggeriva l'email dell'admin già loggato in
           questo campo (l'ha creato lui, è l'ultima email "vista" dal browser in un input
           type="email") — un suggerimento del browser, mai un valore scritto dall'app, ma
           visivamente sembrava che il modulo "riusasse" l'email sbagliata. Email SEMPRE
           richiesta, anche per i dipendenti: hanno un indirizzo aziendale come chiunque
           altro, non è un campo riservato agli admin. */}
-      <label htmlFor="nuovo-utente-email">Email</label>
-      <input
+      <Input
         id="nuovo-utente-email"
-        className="field"
+        label="Email"
         type="email"
         autoComplete="off"
         placeholder="nome@azienda.it"
         value={email}
         onChange={(e) => setEmail(e.target.value)}
         required
+        className={BORDO_CAMPO}
       />
-      <label htmlFor="nuovo-utente-nome">Nome</label>
-      <input id="nuovo-utente-nome" className="field" autoComplete="off" placeholder="Nome e cognome" value={name} onChange={(e) => setName(e.target.value)} required />
-      <label htmlFor="nuovo-utente-ruolo">Ruolo</label>
-      <select id="nuovo-utente-ruolo" className="field" value={role} onChange={(e) => setRole(e.target.value as UserRole)}>
-        {ROLES.map((r) => (
-          <option key={r} value={r}>
-            {USER_ROLE_LABELS[r]}
-          </option>
-        ))}
-      </select>
-      <label htmlFor="nuovo-utente-password">Password iniziale</label>
-      <input
+      <Input
+        id="nuovo-utente-nome"
+        label="Nome"
+        autoComplete="off"
+        placeholder="Nome e cognome"
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        required
+        className={BORDO_CAMPO}
+      />
+      <Select
+        id="nuovo-utente-ruolo"
+        label="Ruolo"
+        options={ROLE_OPTIONS}
+        value={role}
+        onChange={(e) => setRole(e.target.value as UserRole)}
+        className={BORDO_CAMPO}
+      />
+      <Input
         id="nuovo-utente-password"
-        className="field"
+        label="Password iniziale"
         type="password"
         autoComplete="new-password"
         placeholder="Password iniziale"
         value={password}
         onChange={(e) => setPassword(e.target.value)}
         required
+        className={BORDO_CAMPO}
       />
-      <button className="btn-primary" disabled={busy} type="submit">
-        {busy ? '…' : 'Crea utente'}
-      </button>
+      <Button type="submit" variant="primary" fullWidth loading={busy}>
+        Crea utente
+      </Button>
     </form>
   );
 }

@@ -27,7 +27,7 @@ const stateStyles: Record<InputState, string> = {
 };
 
 const baseStyles =
-  'w-full rounded-lg bg-white text-surface-900 placeholder:text-surface-400 transition-all duration-150 ' +
+  'w-full rounded-lg border bg-white text-surface-900 placeholder:text-surface-400 transition-all duration-150 ' +
   'focus:outline-none focus:ring-2 focus:ring-offset-0 ' +
   'disabled:bg-surface-100 disabled:text-surface-500 disabled:cursor-not-allowed ' +
   'dark:bg-surface-800 dark:text-surface-100 dark:placeholder:text-surface-500';

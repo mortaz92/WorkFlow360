@@ -33,7 +33,7 @@ const stateStyles: Record<SelectState, string> = {
 };
 
 const baseStyles =
-  'w-full rounded-lg bg-white text-surface-900 transition-all duration-150 appearance-none ' +
+  'w-full rounded-lg border bg-white text-surface-900 transition-all duration-150 appearance-none ' +
   'focus:outline-none focus:ring-2 focus:ring-offset-0 ' +
   'disabled:bg-surface-100 disabled:text-surface-500 disabled:cursor-not-allowed ' +
   'dark:bg-surface-800 dark:text-surface-100 ' +

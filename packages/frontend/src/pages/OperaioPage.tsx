@@ -3,7 +3,28 @@ import { useNavigate } from 'react-router-dom';
 import { api, clearToken } from '../lib/api';
 import type { Project, Task, TimeLog, TimeLogTipo, CreateTimeLogInput, UpdateTimeLogInput } from '../lib/types';
 import { badgeClassForTipo, formatHours, PROJECT_STATUS_LABELS } from '../lib/format';
-import { CalendarIcon, DocumentIcon, PackageIcon } from '../components/icons';
+import {
+  CalendarIcon,
+  CheckCircleIcon,
+  ClockIcon,
+  DocumentIcon,
+  GearIcon,
+  LogoutIcon,
+  PackageIcon,
+  XIcon,
+} from '../components/icons';
+import {
+  Button,
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  EmptyState,
+  Input,
+  Select,
+  Textarea,
+  type SelectOption,
+} from '../components/ui';
 
 const TIPI: TimeLogTipo[] = ['ordinario', 'straordinario', 'notturno', 'festivo', 'permesso', 'ferie'];
 const ABSENCE_TIPI: TimeLogTipo[] = ['ferie', 'permesso'];
@@ -15,6 +36,37 @@ const HISTORY_FETCH_LIMIT = 100;
 // oltre il ventesimo cantiere sparisce dalla tendina di selezione.
 const PROJECTS_FETCH_LIMIT = 100;
 const RECENT_DAYS = 7;
+
+// Le stesse opzioni di TIPI, nella forma richiesta dal <Select> del design system:
+// costruite una volta sola a livello di modulo perché l'elenco è fisso e non dipende
+// dallo stato (a differenza di cantieri e lavori, che arrivano dal server).
+const TIPO_OPTIONS: SelectOption[] = TIPI.map((t) => ({ value: t, label: t }));
+
+// Classi ricorrenti del design system, scritte una volta sola invece di ripeterle in
+// ogni riquadro. Stessi valori usati in DashboardPage: le due pagine devono restare
+// visivamente coerenti anche se le apre lo stesso utente su schermi diversi.
+const ALERT_ERRORE =
+  'rounded-lg border border-danger-200 bg-danger-50 px-3 py-2.5 text-sm font-medium text-danger-600 dark:border-danger-800 dark:bg-danger-900/30 dark:text-danger-400';
+
+const ALERT_SUCCESSO =
+  'rounded-lg border border-success-200 bg-success-50 px-3 py-2.5 text-sm font-medium text-success-700 dark:border-success-800 dark:bg-success-900/30 dark:text-success-300';
+
+const ELENCO = 'm-0 flex list-none flex-col gap-2 p-0';
+
+const RIGA_ELENCO =
+  'rounded-lg border border-surface-200 bg-white p-3 transition-shadow hover:shadow-card dark:border-surface-700 dark:bg-surface-800';
+
+// Variante della riga per un giorno senza ore: NON si aggiunge sopra RIGA_ELENCO, si
+// sostituisce. Sovrapporre bg-danger-50 a bg-white lascerebbe decidere il colore
+// all'ordine con cui Tailwind genera le due utility, non all'ordine in cui le scrivo.
+const RIGA_ELENCO_BUCO =
+  'rounded-lg border border-danger-200 bg-danger-50 p-3 dark:border-danger-800 dark:bg-danger-900/20';
+
+const TESTO_ATTENUATO = 'text-sm text-surface-500 dark:text-surface-400';
+
+// Stessa etichetta che Input/Select/Textarea disegnano al loro interno: serve per i
+// gruppi di campi che non hanno un singolo input a cui agganciarsi (i materiali).
+const ETICHETTA_CAMPO = 'block text-sm font-medium text-surface-700 dark:text-surface-300';
 
 interface MaterialDraft {
   name: string;
@@ -306,6 +358,14 @@ export default function OperaioPage() {
 
   const selectedTask = tasks.find((t) => t.id === taskId);
 
+  // Le liste delle tendine nella forma attesa dal <Select> del design system: stessi
+  // valori e stesse etichette di prima, solo passati come dato invece che come <option>.
+  const projectOptions: SelectOption[] = projects.map((p) => ({ value: p.id, label: p.name }));
+  const taskOptions: SelectOption[] =
+    tasks.length === 0
+      ? [{ value: '', label: 'Nessun lavoro per questo cantiere' }]
+      : tasks.map((t) => ({ value: t.id, label: `${t.title} · ${PROJECT_STATUS_LABELS[t.status]}` }));
+
   const todayIso = isoDate(new Date());
   // 7 elementi: memoizzare "una volta sola" (deps []) congelava la finestra al mount,
   // disallineandola da todayIso dopo mezzanotte su una PWA tenuta aperta a lungo.
@@ -324,28 +384,37 @@ export default function OperaioPage() {
   }, [myLogs]);
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-surface-50 dark:bg-surface-950">
       {/* Niente sidebar qui: l'operaio ha un'unica vista, in cantiere da smartphone.
           Una sidebar desktop-style ruberebbe spazio prezioso al form. */}
-      <header className="sticky top-0 z-10 flex items-center justify-between border-b border-gray-200 bg-white px-4 py-3">
-        <div>
-          <strong className="text-lg font-semibold text-blue-600">WorkFlow360</strong>
-          <span className="muted"> · Operaio</span>
+      <header className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-surface-200 bg-white px-4 py-3 dark:border-surface-700 dark:bg-surface-900">
+        <div className="flex min-w-0 items-center gap-2.5">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary-600 text-white">
+            <GearIcon className="h-5 w-5" />
+          </span>
+          <strong className="truncate text-lg font-semibold text-surface-900 dark:text-white">WorkFlow360</strong>
+          <span className={`${TESTO_ATTENUATO} shrink-0`}>· Operaio</span>
         </div>
-        <button className="btn-ghost" onClick={logout}>
+        <Button variant="ghost" onClick={logout} leftIcon={<LogoutIcon className="h-4 w-4" />}>
           Esci
-        </button>
+        </Button>
       </header>
 
-      <main className="mx-auto max-w-xl p-4 flex flex-col gap-4">
-        {error && <div className="alert">{error}</div>}
-        {loading && <p className="muted">Caricamento…</p>}
+      <main className="mx-auto flex max-w-xl flex-col gap-4 p-4">
+        {error && (
+          <div className={ALERT_ERRORE} role="alert">
+            {error}
+          </div>
+        )}
+        {loading && <p className={TESTO_ATTENUATO}>Caricamento…</p>}
 
-        <div className="flex gap-1 rounded-lg bg-gray-100 p-1">
+        <div className="flex gap-1 rounded-xl bg-surface-100 p-1 dark:bg-surface-800">
           <button
             type="button"
-            className={`flex-1 rounded-md px-3 py-2 text-sm font-medium transition-colors cursor-pointer ${
-              activeTab === 'registra' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+            className={`flex-1 cursor-pointer rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
+              activeTab === 'registra'
+                ? 'bg-white text-surface-900 shadow-card dark:bg-surface-700 dark:text-white'
+                : 'text-surface-500 hover:text-surface-700 dark:text-surface-400 dark:hover:text-surface-200'
             }`}
             onClick={() => setActiveTab('registra')}
           >
@@ -353,8 +422,10 @@ export default function OperaioPage() {
           </button>
           <button
             type="button"
-            className={`flex-1 rounded-md px-3 py-2 text-sm font-medium transition-colors cursor-pointer ${
-              activeTab === 'storico' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+            className={`flex-1 cursor-pointer rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
+              activeTab === 'storico'
+                ? 'bg-white text-surface-900 shadow-card dark:bg-surface-700 dark:text-white'
+                : 'text-surface-500 hover:text-surface-700 dark:text-surface-400 dark:hover:text-surface-200'
             }`}
             onClick={() => setActiveTab('storico')}
           >
@@ -365,264 +436,353 @@ export default function OperaioPage() {
         {activeTab === 'registra' && (
           <>
             {saveConfirmation && (
-              <div className="alert-success flex items-start justify-between gap-3">
-                <span>{summarizeSaved(saveConfirmation)}</span>
-                <button type="button" className="btn-ghost px-2" onClick={() => setSaveConfirmation(null)}>
-                  ✕
-                </button>
+              <div className={`${ALERT_SUCCESSO} flex items-start justify-between gap-3`} role="status">
+                <span className="flex items-start gap-2">
+                  <CheckCircleIcon className="h-5 w-5 shrink-0" />
+                  {summarizeSaved(saveConfirmation)}
+                </span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="shrink-0"
+                  onClick={() => setSaveConfirmation(null)}
+                  aria-label="Chiudi la conferma di salvataggio"
+                >
+                  <XIcon />
+                </Button>
               </div>
             )}
 
-            <section className="card">
-              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                <h2 className="m-0">{editingId ? 'Modifica registrazione' : 'Registra le tue ore'}</h2>
+            <Card>
+              <CardHeader className="flex flex-wrap items-center justify-between gap-2">
+                <CardTitle>{editingId ? 'Modifica registrazione' : 'Registra le tue ore'}</CardTitle>
                 {!editingId && myLogs.length > 0 && (
-                  <button type="button" className="btn-ghost" disabled={repeating} onClick={repeatLast}>
-                    {repeating ? '…' : 'Ripeti ultima registrazione'}
-                  </button>
+                  <Button variant="ghost" size="sm" loading={repeating} onClick={repeatLast}>
+                    Ripeti ultima registrazione
+                  </Button>
                 )}
-              </div>
-              {formError && <div className="alert">{formError}</div>}
-              <form className="inline-form" onSubmit={handleSubmit}>
-                <label htmlFor="op-cantiere">Cantiere</label>
-                <select id="op-cantiere" className="field" value={selectedProjectId} onChange={(e) => onProjectChange(e.target.value)} required>
-                  {projects.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name}
-                    </option>
-                  ))}
-                </select>
-
-                <label htmlFor="op-lavoro">Lavoro (task)</label>
-                <select id="op-lavoro" className="field" value={taskId} onChange={(e) => setTaskId(e.target.value)} required>
-                  {tasks.length === 0 && <option value="">Nessun lavoro per questo cantiere</option>}
-                  {tasks.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.title} · {PROJECT_STATUS_LABELS[t.status]}
-                    </option>
-                  ))}
-                </select>
-                {selectedTask && (
-                  <div className="flex items-start justify-between gap-2 rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm">
-                    <span className="text-gray-600">{selectedTask.description ?? 'Nessuna descrizione per questo lavoro.'}</span>
-                    <span className={`badge badge-${selectedTask.status} shrink-0`}>{PROJECT_STATUS_LABELS[selectedTask.status]}</span>
+              </CardHeader>
+              <CardContent>
+                {formError && (
+                  <div className={`${ALERT_ERRORE} mb-4`} role="alert">
+                    {formError}
                   </div>
                 )}
+                <form className="flex flex-col gap-4" onSubmit={handleSubmit}>
+                  <Select
+                    id="op-cantiere"
+                    label="Cantiere"
+                    size="lg"
+                    options={projectOptions}
+                    value={selectedProjectId}
+                    onChange={(e) => onProjectChange(e.target.value)}
+                    required
+                  />
 
-                <label htmlFor="op-tipo">Tipo</label>
-                <select id="op-tipo" className="field" value={tipo} onChange={(e) => setTipo(e.target.value as TimeLogTipo)}>
-                  {TIPI.map((t) => (
-                    <option key={t} value={t}>
-                      {t}
-                    </option>
-                  ))}
-                </select>
-
-                <div className="flex gap-2">
-                  <div className="flex-1">
-                    <label htmlFor="op-ore">Ore</label>
-                    <input
-                      id="op-ore"
-                      className="field"
-                      type="number"
-                      step="0.25"
-                      min="0.25"
-                      placeholder="3.5"
-                      value={hours}
-                      onChange={(e) => setHours(e.target.value)}
+                  {/* Tendina e descrizione del lavoro selezionato stanno in un gruppo
+                      con spaziatura più stretta del resto del form: sono la stessa
+                      informazione, il riquadro descrive la voce appena scelta sopra. */}
+                  <div className="flex flex-col gap-2">
+                    <Select
+                      id="op-lavoro"
+                      label="Lavoro (task)"
+                      size="lg"
+                      options={taskOptions}
+                      value={taskId}
+                      onChange={(e) => setTaskId(e.target.value)}
                       required
                     />
+                    {selectedTask && (
+                      <div className="flex items-start justify-between gap-2 rounded-lg border border-surface-200 bg-surface-50 p-3 text-sm dark:border-surface-700 dark:bg-surface-900/50">
+                        <span className="text-surface-600 dark:text-surface-400">
+                          {selectedTask.description ?? 'Nessuna descrizione per questo lavoro.'}
+                        </span>
+                        <span className={`badge badge-${selectedTask.status} shrink-0`}>{PROJECT_STATUS_LABELS[selectedTask.status]}</span>
+                      </div>
+                    )}
                   </div>
-                  <div className="flex-1">
-                    <label htmlFor="op-data">Data</label>
-                    <input id="op-data" className="field" type="date" value={date} onChange={(e) => setDate(e.target.value)} required />
+
+                  <Select
+                    id="op-tipo"
+                    label="Tipo"
+                    size="lg"
+                    options={TIPO_OPTIONS}
+                    value={tipo}
+                    onChange={(e) => setTipo(e.target.value as TimeLogTipo)}
+                  />
+
+                  <div className="flex gap-3">
+                    <div className="flex-1">
+                      <Input
+                        id="op-ore"
+                        label="Ore"
+                        size="lg"
+                        type="number"
+                        step="0.25"
+                        min="0.25"
+                        placeholder="3.5"
+                        value={hours}
+                        onChange={(e) => setHours(e.target.value)}
+                        required
+                      />
+                    </div>
+                    <div className="flex-1">
+                      {/* dark:[color-scheme:dark]: senza, l'icona del calendario/orologio
+                          disegnata dal browser resta nera su fondo scuro, quasi invisibile.
+                          Vale per tutti e tre i campi date/time di questo form. */}
+                      <Input
+                        id="op-data"
+                        label="Data"
+                        size="lg"
+                        type="date"
+                        className="dark:[color-scheme:dark]"
+                        value={date}
+                        onChange={(e) => setDate(e.target.value)}
+                        required
+                      />
+                    </div>
                   </div>
-                </div>
 
-                {/* Visibili per qualunque tipo (il backend li accetta sempre, vedi
-                    createSchema/updateSchema): prima erano nascosti fuori da
-                    'ordinario', ma lo stato React non si svuotava con loro — un
-                    orario inserito su 'ordinario' e poi "nascosto" cambiando tipo
-                    veniva comunque inviato, e ricompariva come orario fantasma su
-                    una riga ferie/permesso nello storico (trovato in FASE 5).
-                    Renderli sempre visibili è la correzione: quello che l'operaio
-                    vede è sempre quello che verrà salvato, niente più stato invisibile. */}
-                <div className="flex gap-2">
-                  <div className="flex-1">
-                    <label htmlFor="op-ora-inizio">Ora di inizio (opz.)</label>
-                    <input
-                      id="op-ora-inizio"
-                      className="field"
-                      type="time"
-                      value={startTime}
-                      onChange={(e) => setStartTime(e.target.value)}
-                    />
+                  {/* Visibili per qualunque tipo (il backend li accetta sempre, vedi
+                      createSchema/updateSchema): prima erano nascosti fuori da
+                      'ordinario', ma lo stato React non si svuotava con loro — un
+                      orario inserito su 'ordinario' e poi "nascosto" cambiando tipo
+                      veniva comunque inviato, e ricompariva come orario fantasma su
+                      una riga ferie/permesso nello storico (trovato in FASE 5).
+                      Renderli sempre visibili è la correzione: quello che l'operaio
+                      vede è sempre quello che verrà salvato, niente più stato invisibile. */}
+                  <div className="flex flex-col gap-2">
+                    <div className="flex gap-3">
+                      <div className="flex-1">
+                        <Input
+                          id="op-ora-inizio"
+                          label="Ora di inizio (opz.)"
+                          size="lg"
+                          type="time"
+                          className="dark:[color-scheme:dark]"
+                          value={startTime}
+                          onChange={(e) => setStartTime(e.target.value)}
+                        />
+                      </div>
+                      <div className="flex-1">
+                        <Input
+                          id="op-ora-fine"
+                          label="Ora di fine (opz.)"
+                          size="lg"
+                          type="time"
+                          className="dark:[color-scheme:dark]"
+                          value={endTime}
+                          onChange={(e) => setEndTime(e.target.value)}
+                        />
+                      </div>
+                    </div>
+                    {tipo === 'ordinario' ? (
+                      startTime ? (
+                        <p className={TESTO_ATTENUATO}>
+                          Le ore tra le 22:00 e le 6:00 diventano automaticamente "notturno"; oltre le 8 ore
+                          ordinario nello stesso giorno, il resto diventa automaticamente "straordinario".
+                          "Ora di fine" è solo un'informazione in più: il totale ore resta quello scritto sopra.
+                        </p>
+                      ) : (
+                        <p className={TESTO_ATTENUATO}>
+                          Senza ora di inizio le ore notturne e lo straordinario NON vengono riconosciuti
+                          automaticamente: tutte le ore restano registrate come "ordinario".
+                        </p>
+                      )
+                    ) : (
+                      <p className={TESTO_ATTENUATO}>
+                        "Ora di inizio/fine" sono facoltative, solo un'informazione in più sul turno.
+                      </p>
+                    )}
                   </div>
-                  <div className="flex-1">
-                    <label htmlFor="op-ora-fine">Ora di fine (opz.)</label>
-                    <input
-                      id="op-ora-fine"
-                      className="field"
-                      type="time"
-                      value={endTime}
-                      onChange={(e) => setEndTime(e.target.value)}
-                    />
+
+                  <Textarea
+                    id="op-lavoro-svolto"
+                    label="Lavoro svolto"
+                    size="lg"
+                    placeholder="Es. Montaggio tubazione rame, saldatura giunti"
+                    value={work}
+                    onChange={(e) => setWork(e.target.value)}
+                    rows={2}
+                  />
+
+                  <div className="flex flex-col gap-2">
+                    {/* Etichetta del gruppo, non di un singolo campo: ogni materiale è
+                        una riga da tre campi, e ciascuno ha la propria aria-label. Un
+                        <label> senza campo a cui agganciarsi non descriverebbe niente. */}
+                    <span className={ETICHETTA_CAMPO}>Materiali usati</span>
+                    {materials.map((m, i) => (
+                      <div key={i} className="flex items-center gap-1.5">
+                        <div className="flex-[2]">
+                          <Input
+                            aria-label={`Nome del materiale ${i + 1}`}
+                            size="lg"
+                            placeholder="Nome (es. Tubo rame)"
+                            value={m.name}
+                            onChange={(e) => updateMaterial(i, 'name', e.target.value)}
+                          />
+                        </div>
+                        <div className="flex-1">
+                          <Input
+                            aria-label={`Quantità del materiale ${i + 1}`}
+                            size="lg"
+                            placeholder="Qtà"
+                            type="number"
+                            step="0.1"
+                            value={m.quantity}
+                            onChange={(e) => updateMaterial(i, 'quantity', e.target.value)}
+                          />
+                        </div>
+                        <div className="flex-1">
+                          <Input
+                            aria-label={`Unità di misura del materiale ${i + 1}`}
+                            size="lg"
+                            placeholder="unità"
+                            value={m.unit}
+                            onChange={(e) => updateMaterial(i, 'unit', e.target.value)}
+                          />
+                        </div>
+                        <Button
+                          variant="ghost"
+                          className="shrink-0"
+                          onClick={() => removeMaterial(i)}
+                          aria-label={`Rimuovi il materiale ${i + 1}`}
+                        >
+                          <XIcon className="h-5 w-5" />
+                        </Button>
+                      </div>
+                    ))}
+                    <Button variant="ghost" onClick={addMaterial}>
+                      + Aggiungi materiale
+                    </Button>
                   </div>
-                </div>
-                {tipo === 'ordinario' ? (
-                  startTime ? (
-                    <p className="muted">
-                      Le ore tra le 22:00 e le 6:00 diventano automaticamente "notturno"; oltre le 8 ore
-                      ordinario nello stesso giorno, il resto diventa automaticamente "straordinario".
-                      "Ora di fine" è solo un'informazione in più: il totale ore resta quello scritto sopra.
-                    </p>
-                  ) : (
-                    <p className="muted">
-                      Senza ora di inizio le ore notturne e lo straordinario NON vengono riconosciuti
-                      automaticamente: tutte le ore restano registrate come "ordinario".
-                    </p>
-                  )
-                ) : (
-                  <p className="muted">"Ora di inizio/fine" sono facoltative, solo un'informazione in più sul turno.</p>
-                )}
 
-                <label htmlFor="op-lavoro-svolto">Lavoro svolto</label>
-                <textarea
-                  id="op-lavoro-svolto"
-                  className="field"
-                  placeholder="Es. Montaggio tubazione rame, saldatura giunti"
-                  value={work}
-                  onChange={(e) => setWork(e.target.value)}
-                  rows={2}
-                />
+                  <Input
+                    id="op-note"
+                    label="Note (opz.)"
+                    size="lg"
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                  />
 
-                <label>Materiali usati</label>
-                {materials.map((m, i) => (
-                  <div key={i} className="flex items-center gap-1.5">
-                    <input
-                      className="field flex-[2]"
-                      placeholder="Nome (es. Tubo rame)"
-                      value={m.name}
-                      onChange={(e) => updateMaterial(i, 'name', e.target.value)}
-                    />
-                    <input
-                      className="field w-16 flex-1"
-                      placeholder="Qtà"
-                      type="number"
-                      step="0.1"
-                      value={m.quantity}
-                      onChange={(e) => updateMaterial(i, 'quantity', e.target.value)}
-                    />
-                    <input
-                      className="field w-[70px] flex-1"
-                      placeholder="unità"
-                      value={m.unit}
-                      onChange={(e) => updateMaterial(i, 'unit', e.target.value)}
-                    />
-                    <button type="button" className="btn-ghost px-2" onClick={() => removeMaterial(i)}>
-                      ✕
-                    </button>
+                  {/* Bottoni impilati sul telefono e affiancati da tablet in su: in
+                      cantiere si usa una mano sola, il bersaglio deve essere largo
+                      quanto lo schermo. */}
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <Button type="submit" variant="primary" size="lg" fullWidth loading={saving}>
+                      {editingId ? 'Salva modifica' : 'Salva ore'}
+                    </Button>
+                    {editingId && (
+                      <Button type="button" variant="ghost" size="lg" fullWidth onClick={resetForm}>
+                        Annulla
+                      </Button>
+                    )}
                   </div>
-                ))}
-                <button type="button" className="btn-ghost" onClick={addMaterial}>
-                  + Aggiungi materiale
-                </button>
-
-                <label htmlFor="op-note">Note (opz.)</label>
-                <input id="op-note" className="field" value={notes} onChange={(e) => setNotes(e.target.value)} />
-
-                <button className="btn-primary" type="submit" disabled={saving}>
-                  {saving ? '…' : editingId ? 'Salva modifica' : 'Salva ore'}
-                </button>
-                {editingId && (
-                  <button type="button" className="btn-ghost" onClick={resetForm}>
-                    Annulla
-                  </button>
-                )}
-              </form>
-            </section>
+                </form>
+              </CardContent>
+            </Card>
           </>
         )}
 
         {activeTab === 'storico' && (
           <>
-            <section className="card">
-              <h2>Ultimi {RECENT_DAYS} giorni</h2>
-              <ul className="list">
-                {last7Days.map((day) => {
-                  const worked = workedByDay.get(day) ?? 0;
-                  const absence = absenceByDay.get(day) ?? 0;
-                  const isToday = day === todayIso;
-                  const isWeekend = isWeekendDay(day);
-                  // "Buco" solo se non c'è nessuna ora (né lavorata né di assenza), non
-                  // è oggi (la giornata non è ancora finita) e non è un weekend (un rosso
-                  // che si accende ogni sabato e domenica smette di essere un allarme).
-                  const isGap = worked === 0 && absence === 0 && !isToday && !isWeekend;
-                  return (
-                    <li
-                      key={day}
-                      className={`list-item flex items-center justify-between ${isGap ? 'border-red-200 bg-red-50' : ''}`}
-                    >
-                      <span className="flex items-center gap-2 font-medium text-gray-900 capitalize">
-                        <CalendarIcon className="h-4 w-4 text-gray-400" />
-                        {dayLabel(day)}
-                      </span>
-                      {worked > 0 && (
-                        <span className="text-sm font-semibold text-gray-700">
-                          {formatHours(worked)}h{absence > 0 ? ' + ferie/permesso' : ''}
+            <Card>
+              <CardHeader>
+                <CardTitle>Ultimi {RECENT_DAYS} giorni</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ul className={ELENCO}>
+                  {last7Days.map((day) => {
+                    const worked = workedByDay.get(day) ?? 0;
+                    const absence = absenceByDay.get(day) ?? 0;
+                    const isToday = day === todayIso;
+                    const isWeekend = isWeekendDay(day);
+                    // "Buco" solo se non c'è nessuna ora (né lavorata né di assenza), non
+                    // è oggi (la giornata non è ancora finita) e non è un weekend (un rosso
+                    // che si accende ogni sabato e domenica smette di essere un allarme).
+                    const isGap = worked === 0 && absence === 0 && !isToday && !isWeekend;
+                    return (
+                      <li
+                        key={day}
+                        className={`${isGap ? RIGA_ELENCO_BUCO : RIGA_ELENCO} flex items-center justify-between gap-2`}
+                      >
+                        <span className="flex items-center gap-2 font-medium capitalize text-surface-900 dark:text-surface-100">
+                          <CalendarIcon className="h-4 w-4 text-surface-400 dark:text-surface-500" />
+                          {dayLabel(day)}
+                        </span>
+                        {worked > 0 && (
+                          <span className="text-sm font-semibold text-surface-700 dark:text-surface-300">
+                            {formatHours(worked)}h{absence > 0 ? ' + ferie/permesso' : ''}
+                          </span>
+                        )}
+                        {worked === 0 && absence > 0 && (
+                          <span className="text-sm font-medium text-primary-600 dark:text-primary-400">Ferie/permesso</span>
+                        )}
+                        {worked === 0 && absence === 0 && isToday && (
+                          <span className={TESTO_ATTENUATO}>Non ancora registrato</span>
+                        )}
+                        {worked === 0 && absence === 0 && !isToday && isWeekend && (
+                          <span className={TESTO_ATTENUATO}>—</span>
+                        )}
+                        {isGap && (
+                          <span className="text-sm font-medium text-danger-600 dark:text-danger-400">
+                            Nessuna ora registrata
+                          </span>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>
+                  Le mie registrazioni ({myLogs.length}
+                  {myLogsTotal > myLogs.length ? ` di ${myLogsTotal}` : ''})
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {myLogs.length === 0 && !loading && (
+                  <EmptyState title="Nessuna ora registrata" icon={<ClockIcon className="h-10 w-10" />} />
+                )}
+                <ul className={ELENCO}>
+                  {myLogs.map((log) => (
+                    <li key={log.id} className={`${RIGA_ELENCO} flex flex-col items-stretch gap-1.5`}>
+                      <div className="flex justify-between gap-2">
+                        <strong className="font-medium text-surface-900 dark:text-surface-100">
+                          {log.date} · {log.hoursWorked}h
+                          {log.startTime
+                            ? ` (da ${log.startTime.slice(0, 5)}${log.endTime ? ` a ${log.endTime.slice(0, 5)}` : ''})`
+                            : ''}
+                        </strong>
+                        <span className={badgeClassForTipo(log.tipo)}>{log.tipo}</span>
+                      </div>
+                      {log.workDescription && (
+                        <span className={`flex items-center gap-1.5 ${TESTO_ATTENUATO}`}>
+                          <DocumentIcon className="h-4 w-4" /> {log.workDescription}
                         </span>
                       )}
-                      {worked === 0 && absence > 0 && <span className="text-sm font-medium text-blue-600">Ferie/permesso</span>}
-                      {worked === 0 && absence === 0 && isToday && <span className="muted text-sm">Non ancora registrato</span>}
-                      {worked === 0 && absence === 0 && !isToday && isWeekend && <span className="muted text-sm">—</span>}
-                      {isGap && <span className="text-sm font-medium text-red-600">Nessuna ora registrata</span>}
+                      {log.materials.length > 0 && (
+                        <span className={`flex items-center gap-1.5 ${TESTO_ATTENUATO}`}>
+                          <PackageIcon className="h-4 w-4" />{' '}
+                          {log.materials.map((m) => `${m.name} ${m.quantity}${m.unit}`).join(', ')}
+                        </span>
+                      )}
+                      <div className="mt-1 flex gap-2">
+                        <Button variant="ghost" onClick={() => startEdit(log)}>
+                          Modifica
+                        </Button>
+                        <Button variant="danger" onClick={() => handleDelete(log.id)}>
+                          Elimina
+                        </Button>
+                      </div>
                     </li>
-                  );
-                })}
-              </ul>
-            </section>
-
-            <section className="card">
-              <h2>
-                Le mie registrazioni ({myLogs.length}
-                {myLogsTotal > myLogs.length ? ` di ${myLogsTotal}` : ''})
-              </h2>
-              {myLogs.length === 0 && !loading && <p className="muted">Nessuna ora registrata.</p>}
-              <ul className="list">
-                {myLogs.map((log) => (
-                  <li key={log.id} className="list-item flex flex-col items-stretch gap-1.5">
-                    <div className="flex justify-between">
-                      <strong className="font-medium text-gray-900">
-                        {log.date} · {log.hoursWorked}h
-                        {log.startTime
-                          ? ` (da ${log.startTime.slice(0, 5)}${log.endTime ? ` a ${log.endTime.slice(0, 5)}` : ''})`
-                          : ''}
-                      </strong>
-                      <span className={badgeClassForTipo(log.tipo)}>{log.tipo}</span>
-                    </div>
-                    {log.workDescription && (
-                      <span className="flex items-center gap-1.5 muted">
-                        <DocumentIcon className="h-4 w-4" /> {log.workDescription}
-                      </span>
-                    )}
-                    {log.materials.length > 0 && (
-                      <span className="flex items-center gap-1.5 muted">
-                        <PackageIcon className="h-4 w-4" />{' '}
-                        {log.materials.map((m) => `${m.name} ${m.quantity}${m.unit}`).join(', ')}
-                      </span>
-                    )}
-                    <div className="mt-1 flex gap-2">
-                      <button className="btn-ghost" onClick={() => startEdit(log)}>
-                        Modifica
-                      </button>
-                      <button className="btn-danger" onClick={() => handleDelete(log.id)}>
-                        Elimina
-                      </button>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            </section>
+                  ))}
+                </ul>
+              </CardContent>
+            </Card>
           </>
         )}
       </main>

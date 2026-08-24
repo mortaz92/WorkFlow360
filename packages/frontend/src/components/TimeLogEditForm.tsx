@@ -2,6 +2,13 @@ import { useState } from 'react';
 import { api } from '../lib/api';
 import type { AssignableUser, Project, Task, TimeLogTipo } from '../lib/types';
 import { TIPI_ORDER } from '../lib/format';
+import { Button, Input, Select, type SelectOption } from './ui';
+
+// Stessa classe di riquadro-errore usata nelle pagine già migrate al design system:
+// ricopiata e non estratta in un modulo condiviso finché la migrazione delle altre
+// pagine è in corso in parallelo (va consolidata in un unico passaggio, alla fine).
+const ALERT_ERRORE =
+  'rounded-lg border border-danger-200 bg-danger-50 px-3 py-2.5 text-sm font-medium text-danger-600 dark:border-danger-800 dark:bg-danger-900/30 dark:text-danger-400';
 
 // Correzione di una registrazione ore da parte di admin/PM: cantiere, lavoro,
 // dipendente, tipo, ore, data. Volutamente NON il form di OperaioPage — quello è
@@ -91,68 +98,76 @@ export default function TimeLogEditForm({
 
   if (!editing) {
     return (
-      <button type="button" className="btn-ghost px-2" onClick={open}>
+      <Button type="button" variant="ghost" size="sm" onClick={open}>
         Modifica
-      </button>
+      </Button>
     );
   }
 
+  const opzioniCantieri: SelectOption[] = projects.map((p) => ({ value: p.id, label: p.name }));
+
+  // Cantiere senza lavori: unica voce della tendina (com'era prima), non un'opzione
+  // aggiuntiva davanti a una lista piena.
+  const opzioniLavori: SelectOption[] =
+    tasks.length === 0
+      ? [{ value: '', label: 'Nessun lavoro per questo cantiere' }]
+      : tasks.map((t) => ({ value: t.id, label: t.title }));
+
+  // Il dipendente attuale potrebbe non essere più nella lista operai attivi
+  // (disattivato): lo mostriamo comunque come opzione corrente invece di farlo
+  // sparire in silenzio dalla tendina.
+  const opzioniDipendenti: SelectOption[] = [
+    ...(assignableUsers.some((u) => u.id === userId) ? [] : [{ value: userId, label: '(dipendente attuale)' }]),
+    ...assignableUsers.map((u) => ({ value: u.id, label: u.name })),
+  ];
+
+  const opzioniTipo: SelectOption[] = TIPI_ORDER.map((t) => ({ value: t, label: t }));
+
   return (
-    <div className="inline-form w-full">
-      <h3>Correggi registrazione</h3>
-      {error && <div className="alert">{error}</div>}
+    <div className="mt-4 flex w-full flex-col gap-3 border-t border-surface-200 pt-4 dark:border-surface-700">
+      <h3 className="m-0 text-sm font-semibold text-surface-900 dark:text-surface-100">Correggi registrazione</h3>
+      {error && (
+        <div className={ALERT_ERRORE} role="alert">
+          {error}
+        </div>
+      )}
       {loadingOptions ? (
-        <p className="muted">Caricamento opzioni…</p>
+        <p className="text-sm text-surface-500 dark:text-surface-400">Caricamento opzioni…</p>
       ) : (
         <>
-          <label htmlFor={`tle-cantiere-${timeLog.id}`}>Cantiere</label>
-          <select
+          <Select
             id={`tle-cantiere-${timeLog.id}`}
-            className="field"
+            label="Cantiere"
+            options={opzioniCantieri}
             value={projectId}
             onChange={(e) => onProjectChange(e.target.value)}
-          >
-            {projects.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
-          <label htmlFor={`tle-lavoro-${timeLog.id}`}>Lavoro</label>
-          <select id={`tle-lavoro-${timeLog.id}`} className="field" value={taskId} onChange={(e) => setTaskId(e.target.value)}>
-            {tasks.length === 0 && <option value="">Nessun lavoro per questo cantiere</option>}
-            {tasks.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.title}
-              </option>
-            ))}
-          </select>
-          <label htmlFor={`tle-dipendente-${timeLog.id}`}>Dipendente</label>
-          <select id={`tle-dipendente-${timeLog.id}`} className="field" value={userId} onChange={(e) => setUserId(e.target.value)}>
-            {/* Il dipendente attuale potrebbe non essere più nella lista operai attivi
-                (disattivato): lo mostriamo comunque come opzione corrente invece di
-                farlo sparire in silenzio dalla tendina. */}
-            {!assignableUsers.some((u) => u.id === userId) && <option value={userId}>(dipendente attuale)</option>}
-            {assignableUsers.map((u) => (
-              <option key={u.id} value={u.id}>
-                {u.name}
-              </option>
-            ))}
-          </select>
-          <label htmlFor={`tle-tipo-${timeLog.id}`}>Tipo</label>
-          <select id={`tle-tipo-${timeLog.id}`} className="field" value={tipo} onChange={(e) => setTipo(e.target.value as TimeLogTipo)}>
-            {TIPI_ORDER.map((t) => (
-              <option key={t} value={t}>
-                {t}
-              </option>
-            ))}
-          </select>
-          <div className="flex gap-2">
+          />
+          <Select
+            id={`tle-lavoro-${timeLog.id}`}
+            label="Lavoro"
+            options={opzioniLavori}
+            value={taskId}
+            onChange={(e) => setTaskId(e.target.value)}
+          />
+          <Select
+            id={`tle-dipendente-${timeLog.id}`}
+            label="Dipendente"
+            options={opzioniDipendenti}
+            value={userId}
+            onChange={(e) => setUserId(e.target.value)}
+          />
+          <Select
+            id={`tle-tipo-${timeLog.id}`}
+            label="Tipo"
+            options={opzioniTipo}
+            value={tipo}
+            onChange={(e) => setTipo(e.target.value as TimeLogTipo)}
+          />
+          <div className="flex gap-3">
             <div className="flex-1">
-              <label htmlFor={`tle-ore-${timeLog.id}`}>Ore</label>
-              <input
+              <Input
                 id={`tle-ore-${timeLog.id}`}
-                className="field"
+                label="Ore"
                 type="number"
                 step="0.25"
                 min="0.25"
@@ -161,17 +176,22 @@ export default function TimeLogEditForm({
               />
             </div>
             <div className="flex-1">
-              <label htmlFor={`tle-data-${timeLog.id}`}>Data</label>
-              <input id={`tle-data-${timeLog.id}`} className="field" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+              <Input
+                id={`tle-data-${timeLog.id}`}
+                label="Data"
+                type="date"
+                value={date}
+                onChange={(e) => setDate(e.target.value)}
+              />
             </div>
           </div>
           <div className="flex gap-2">
-            <button className="btn-primary" disabled={busy} type="button" onClick={save}>
-              {busy ? '…' : 'Salva'}
-            </button>
-            <button className="btn-ghost" disabled={busy} type="button" onClick={() => setEditing(false)}>
+            <Button type="button" variant="primary" loading={busy} onClick={save}>
+              Salva
+            </Button>
+            <Button type="button" variant="ghost" disabled={busy} onClick={() => setEditing(false)}>
               Annulla
-            </button>
+            </Button>
           </div>
         </>
       )}

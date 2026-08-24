@@ -1,11 +1,64 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api, ApiError } from '../lib/api';
 import type { AssignableUser, Project, ProjectDetail, ProjectStatus, ProjectTipoCommessa, Task } from '../lib/types';
-import { ArrowLeftIcon, CalendarIcon, ClockIcon, PackageIcon, PrinterIcon, UsersIcon } from '../components/icons';
+import {
+  ArrowLeftIcon,
+  CalendarIcon,
+  ClipboardIcon,
+  ClockIcon,
+  PackageIcon,
+  PrinterIcon,
+  UsersIcon,
+} from '../components/icons';
 import { etichettaCantiere, formatDate, formatHours, PROJECT_STATUS_LABELS } from '../lib/format';
 import TabellaOre from '../components/TabellaOre';
 import RegistroCantiere from '../components/RegistroCantiere';
+import {
+  Button,
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  EmptyState,
+  Input,
+  Select,
+  type SelectOption,
+} from '../components/ui';
+
+// Classi ricorrenti del design system, scritte una volta sola invece di ripeterle in
+// ogni punto in cui compaiono. Stesse stringhe già usate in DashboardPage: restano
+// duplicate lì e qui finché non ci sarà un modulo condiviso per gli stili di pagina.
+const LINK_DETTAGLIO =
+  'flex items-center gap-1 text-sm font-medium text-primary-600 transition-colors hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300';
+
+const RIGA_ELENCO =
+  'rounded-lg border border-surface-200 bg-white p-3 transition-shadow hover:shadow-card dark:border-surface-700 dark:bg-surface-800';
+
+const ALERT_ERRORE =
+  'rounded-lg border border-danger-200 bg-danger-50 px-3 py-2.5 text-sm font-medium text-danger-600 dark:border-danger-800 dark:bg-danger-900/30 dark:text-danger-400';
+
+const TESTO_ATTENUATO = 'text-sm text-surface-500 dark:text-surface-400';
+
+const FORM_INLINE = 'mt-4 flex flex-col gap-3 border-t border-surface-200 pt-4 dark:border-surface-700';
+
+// La vecchia classe .card portava con sé una regola di stampa (break-inside: avoid) che
+// il componente Card non ha: senza questa utility una scheda potrebbe spezzarsi a metà
+// tra due pagine nel "Stampa / Scarica PDF" di questa pagina.
+const CARD_STAMPABILE = 'break-inside-avoid';
+
+// KPI tile: etichetta + numero grande dentro una Card. Stessa struttura per tutte e tre
+// le tessere del cantiere, quindi una sola volta qui invece di tre blocchi identici.
+function KpiTile({ icon, label, value }: { icon: ReactNode; label: string; value: ReactNode }) {
+  return (
+    <Card padding="sm" className={`flex flex-col gap-1 ${CARD_STAMPABILE}`}>
+      <span className="flex items-center gap-1.5 text-sm font-medium text-surface-500 dark:text-surface-400">
+        {icon} {label}
+      </span>
+      <span className="text-3xl font-bold text-surface-900 dark:text-surface-100">{value}</span>
+    </Card>
+  );
+}
 
 export default function CantiereDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -78,23 +131,29 @@ export default function CantiereDetailPage() {
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between gap-3 no-print">
-        <Link to="/cantieri" className="list-link w-fit">
+        <Link to="/cantieri" className={`${LINK_DETTAGLIO} w-fit`}>
           <ArrowLeftIcon /> Cantieri
         </Link>
-        <button type="button" className="btn-secondary gap-2" onClick={() => window.print()}>
-          <PrinterIcon className="h-4 w-4" /> Stampa / Scarica PDF
-        </button>
+        <Button variant="secondary" leftIcon={<PrinterIcon className="h-4 w-4" />} onClick={() => window.print()}>
+          Stampa / Scarica PDF
+        </Button>
       </div>
 
-      {error && <div className="alert no-print">{error}</div>}
-      {loading && <p className="muted no-print">Caricamento…</p>}
+      {error && (
+        <div className={`${ALERT_ERRORE} no-print`} role="alert">
+          {error}
+        </div>
+      )}
+      {loading && <p className={`${TESTO_ATTENUATO} no-print`}>Caricamento…</p>}
 
       {project && (
         <>
           <div>
             <div className="flex flex-wrap items-center gap-2">
-              <span className="font-mono text-lg text-gray-400">{etichettaCantiere(project.code, project.projectNumber, project.tipoCommessa)}</span>
-              <h1 className="m-0 text-2xl font-semibold text-gray-900">{project.name}</h1>
+              <span className="font-mono text-lg text-surface-500 dark:text-surface-400">
+                {etichettaCantiere(project.code, project.projectNumber, project.tipoCommessa)}
+              </span>
+              <h1 className="m-0 text-2xl font-semibold text-surface-900 dark:text-surface-100">{project.name}</h1>
               <span className={`badge badge-${project.tipoCommessa}`}>{project.tipoCommessa}</span>
               <span className={`badge badge-${project.status}`}>{PROJECT_STATUS_LABELS[project.status]}</span>
               {/* Stesso gate di scrittura di /reports (PROJECT_MANAGER_ROLES): kpiForbidden
@@ -106,7 +165,7 @@ export default function CantiereDetailPage() {
                 </span>
               )}
             </div>
-            <div className="mt-1 flex items-center gap-1 text-sm text-gray-500">
+            <div className="mt-1 flex items-center gap-1 text-sm text-surface-500 dark:text-surface-400">
               <CalendarIcon className="h-4 w-4" />
               Creato il {formatDate(project.createdAt)}
             </div>
@@ -114,29 +173,29 @@ export default function CantiereDetailPage() {
 
           {detail && (
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-              <div className="stat-tile">
-                <span className="stat-label">
-                  <UsersIcon className="h-4 w-4" /> Dipendenti coinvolti
-                </span>
-                <span className="stat-value">{detail.employeeCount}</span>
-              </div>
-              <div className="stat-tile">
-                <span className="stat-label">
-                  <ClockIcon className="h-4 w-4" /> Ore totali registrate
-                </span>
-                <span className="stat-value">{formatHours(detail.totalHours)}</span>
-              </div>
-              <div className="stat-tile">
-                <span className="stat-label">
-                  <PackageIcon className="h-4 w-4" /> Materiali diversi usati
-                </span>
-                <span className="stat-value">{detail.materials.length}</span>
-              </div>
+              <KpiTile
+                icon={<UsersIcon className="h-4 w-4" />}
+                label="Dipendenti coinvolti"
+                value={detail.employeeCount}
+              />
+              <KpiTile
+                icon={<ClockIcon className="h-4 w-4" />}
+                label="Ore totali registrate"
+                value={formatHours(detail.totalHours)}
+              />
+              <KpiTile
+                icon={<PackageIcon className="h-4 w-4" />}
+                label="Materiali diversi usati"
+                value={detail.materials.length}
+              />
             </div>
           )}
 
           {kpiForbidden && (
-            <p className="muted">Le statistiche del cantiere (dipendenti, ore, materiale) sono visibili solo ad amministratori e project manager.</p>
+            <p className={TESTO_ATTENUATO}>
+              Le statistiche del cantiere (dipendenti, ore, materiale) sono visibili solo ad amministratori e project
+              manager.
+            </p>
           )}
 
           {detail && detail.employees.length > 0 && (
@@ -144,35 +203,47 @@ export default function CantiereDetailPage() {
           )}
 
           {detail && detail.materials.length > 0 && (
-            <section className="card">
-              <h2>Materiale utilizzato</h2>
-              <ul className="list">
-                {detail.materials.map((m) => (
-                  <li key={`${m.name}-${m.unit}`} className="list-item flex items-center justify-between">
-                    <span className="font-medium text-gray-900">{m.name}</span>
-                    <span className="muted">
-                      {formatHours(m.totalQuantity)} {m.unit}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </section>
+            <Card className={CARD_STAMPABILE}>
+              <CardHeader>
+                <CardTitle>Materiale utilizzato</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ul className="m-0 flex list-none flex-col gap-2 p-0">
+                  {detail.materials.map((m) => (
+                    <li key={`${m.name}-${m.unit}`} className={`${RIGA_ELENCO} flex items-center justify-between`}>
+                      <span className="font-medium text-surface-900 dark:text-surface-100">{m.name}</span>
+                      <span className={TESTO_ATTENUATO}>
+                        {formatHours(m.totalQuantity)} {m.unit}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </CardContent>
+            </Card>
           )}
 
-          <section className="card">
-            <h2>Lavori</h2>
-            {tasks.length === 0 && <p className="muted">Nessun lavoro ancora.</p>}
-            <ul className="list">
-              {tasks.map((t) => (
-                <TaskRow key={t.id} task={t} assignableUsers={assignableUsers} canEdit={!kpiForbidden} onChanged={load} />
-              ))}
-            </ul>
-            {project.status === 'completed' ? (
-              <p className="muted no-print mt-2">Cantiere chiuso: riaprilo per poter aggiungere nuovi lavori.</p>
-            ) : (
-              <NewTaskForm projectId={project.id} assignableUsers={assignableUsers} onCreated={load} />
-            )}
-          </section>
+          <Card className={CARD_STAMPABILE}>
+            <CardHeader>
+              <CardTitle>Lavori</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {tasks.length === 0 && (
+                <EmptyState title="Nessun lavoro ancora" icon={<ClipboardIcon className="h-10 w-10" />} />
+              )}
+              <ul className="m-0 flex list-none flex-col gap-2 p-0">
+                {tasks.map((t) => (
+                  <TaskRow key={t.id} task={t} assignableUsers={assignableUsers} canEdit={!kpiForbidden} onChanged={load} />
+                ))}
+              </ul>
+              {project.status === 'completed' ? (
+                <p className={`${TESTO_ATTENUATO} no-print mt-2`}>
+                  Cantiere chiuso: riaprilo per poter aggiungere nuovi lavori.
+                </p>
+              ) : (
+                <NewTaskForm projectId={project.id} assignableUsers={assignableUsers} onCreated={load} />
+              )}
+            </CardContent>
+          </Card>
 
           {!kpiForbidden && <RegistroCantiere projectId={project.id} />}
         </>
@@ -212,15 +283,27 @@ function CloseReopenButton({ project, onSaved }: { project: Project; onSaved: ()
 
   return (
     <>
-      <button type="button" className={isClosed ? 'btn-secondary' : 'btn-danger'} disabled={busy} onClick={toggle}>
-        {busy ? '…' : isClosed ? 'Riapri cantiere' : 'Chiudi cantiere'}
-      </button>
-      {error && <div className="alert">{error}</div>}
+      <Button type="button" variant={isClosed ? 'secondary' : 'danger'} size="sm" loading={busy} onClick={toggle}>
+        {isClosed ? 'Riapri cantiere' : 'Chiudi cantiere'}
+      </Button>
+      {error && (
+        <div className={ALERT_ERRORE} role="alert">
+          {error}
+        </div>
+      )}
     </>
   );
 }
 
-const STATUS_OPTIONS = Object.keys(PROJECT_STATUS_LABELS) as ProjectStatus[];
+const STATUS_OPTIONS: SelectOption[] = (Object.keys(PROJECT_STATUS_LABELS) as ProjectStatus[]).map((s) => ({
+  value: s,
+  label: PROJECT_STATUS_LABELS[s],
+}));
+
+const TIPO_OPTIONS: SelectOption[] = [
+  { value: 'consuntivo', label: 'Consuntivo' },
+  { value: 'contratto', label: 'A contratto' },
+];
 
 // Modifica di nome/tipo/stato del cantiere. Il backend (PATCH /projects/:id) accetta già
 // tutti e tre — non serve nulla di nuovo lato server, mancava solo questa UI. Cambiare
@@ -268,52 +351,56 @@ function ProjectEditForm({ project, onSaved }: { project: Project; onSaved: () =
 
   if (!editing) {
     return (
-      <button type="button" className="btn-ghost" onClick={() => syncAndToggle(true)}>
+      <Button type="button" variant="ghost" size="sm" onClick={() => syncAndToggle(true)}>
         Modifica
-      </button>
+      </Button>
     );
   }
 
   return (
-    <div className="inline-form w-full basis-full">
-      <h3>Modifica cantiere</h3>
-      {error && <div className="alert">{error}</div>}
-      <label htmlFor="cantiere-edit-nome">Nome</label>
-      <input id="cantiere-edit-nome" className="field" value={name} onChange={(e) => setName(e.target.value)} required />
-      <label htmlFor="cantiere-edit-codice">Codice cantiere (facoltativo)</label>
-      <input
+    <div className={`${FORM_INLINE} w-full basis-full`}>
+      <h3 className="m-0 text-sm font-semibold text-surface-900 dark:text-surface-100">Modifica cantiere</h3>
+      {error && (
+        <div className={ALERT_ERRORE} role="alert">
+          {error}
+        </div>
+      )}
+      <Input
+        id="cantiere-edit-nome"
+        label="Nome"
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        required
+      />
+      <Input
         id="cantiere-edit-codice"
-        className="field"
+        label="Codice cantiere (facoltativo)"
         placeholder="es. CANT-04 — se vuoto uso il formato automatico"
         value={code}
         onChange={(e) => setCode(e.target.value)}
         maxLength={50}
       />
-      <label htmlFor="cantiere-edit-tipo">Tipo</label>
-      <select
+      <Select
         id="cantiere-edit-tipo"
-        className="field"
+        label="Tipo"
+        options={TIPO_OPTIONS}
         value={tipoCommessa}
         onChange={(e) => setTipoCommessa(e.target.value as ProjectTipoCommessa)}
-      >
-        <option value="consuntivo">Consuntivo</option>
-        <option value="contratto">A contratto</option>
-      </select>
-      <label htmlFor="cantiere-edit-status">Stato</label>
-      <select id="cantiere-edit-status" className="field" value={status} onChange={(e) => setStatus(e.target.value as ProjectStatus)}>
-        {STATUS_OPTIONS.map((s) => (
-          <option key={s} value={s}>
-            {PROJECT_STATUS_LABELS[s]}
-          </option>
-        ))}
-      </select>
+      />
+      <Select
+        id="cantiere-edit-status"
+        label="Stato"
+        options={STATUS_OPTIONS}
+        value={status}
+        onChange={(e) => setStatus(e.target.value as ProjectStatus)}
+      />
       <div className="flex gap-2">
-        <button className="btn-primary" disabled={busy} type="button" onClick={save}>
-          {busy ? '…' : 'Salva'}
-        </button>
-        <button className="btn-ghost" disabled={busy} type="button" onClick={() => syncAndToggle(false)}>
+        <Button type="button" variant="primary" loading={busy} onClick={save}>
+          Salva
+        </Button>
+        <Button type="button" variant="ghost" disabled={busy} onClick={() => syncAndToggle(false)}>
           Annulla
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -376,17 +463,17 @@ function TaskRow({
 
   if (!editing) {
     return (
-      <li className="list-item flex items-center justify-between gap-2">
-        <span>{task.title}</span>
+      <li className={`${RIGA_ELENCO} flex items-center justify-between gap-2`}>
+        <span className="text-surface-900 dark:text-surface-100">{task.title}</span>
         <span className="flex items-center gap-2">
           {/* Risolto dal server (task.assignedToName): mai incrociato con
               assignableUsers, che può essere vuoto o non includere un operaio
               disattivato pur essendo il task ancora assegnato a lui. */}
-          <span className="muted text-sm">{task.assignedToName ?? 'Non assegnato'}</span>
+          <span className={TESTO_ATTENUATO}>{task.assignedToName ?? 'Non assegnato'}</span>
           {canEdit && (
-            <button type="button" className="btn-ghost" onClick={() => syncAndToggle(true)}>
+            <Button type="button" variant="ghost" size="sm" onClick={() => syncAndToggle(true)}>
               Modifica
-            </button>
+            </Button>
           )}
         </span>
       </li>
@@ -394,36 +481,43 @@ function TaskRow({
   }
 
   return (
-    <li className="list-item">
-      <div className="inline-form">
-        <label htmlFor={`task-title-${task.id}`}>Nome lavoro</label>
-        <input
+    <li className={RIGA_ELENCO}>
+      <div className="flex flex-col gap-3">
+        <Input
           id={`task-title-${task.id}`}
-          className="field"
+          label="Nome lavoro"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           required
         />
-        {error && <div className="alert">{error}</div>}
-        {canAssign && (
-          <>
-            <label htmlFor={`task-assign-${task.id}`}>Assegnato a</label>
-            <select id={`task-assign-${task.id}`} className="field" value={assignedTo} onChange={(e) => setAssignedTo(e.target.value)}>
-              <option value="">Non assegnato</option>
-              {assignableUsers.map((u) => (
-                <option key={u.id} value={u.id}>
-                  {u.name}
-                </option>
-              ))}
-            </select>
-          </>
+        {error && (
+          <div className={ALERT_ERRORE} role="alert">
+            {error}
+          </div>
         )}
-        <button className="btn-primary" disabled={busy} type="button" onClick={save}>
-          {busy ? '…' : 'Salva'}
-        </button>
-        <button className="btn-ghost" disabled={busy} type="button" onClick={() => syncAndToggle(false)}>
-          Annulla
-        </button>
+        {canAssign && (
+          <Select
+            id={`task-assign-${task.id}`}
+            label="Assegnato a"
+            options={[
+              // Prima opzione dentro `options` e non nella prop `placeholder` del
+              // componente: quella renderizza un <option disabled>, che impedirebbe di
+              // TOGLIERE un'assegnazione già fatta.
+              { value: '', label: 'Non assegnato' },
+              ...assignableUsers.map((u) => ({ value: u.id, label: u.name })),
+            ]}
+            value={assignedTo}
+            onChange={(e) => setAssignedTo(e.target.value)}
+          />
+        )}
+        <div className="flex gap-2">
+          <Button type="button" variant="primary" loading={busy} onClick={save}>
+            Salva
+          </Button>
+          <Button type="button" variant="ghost" disabled={busy} onClick={() => syncAndToggle(false)}>
+            Annulla
+          </Button>
+        </div>
       </div>
     </li>
   );
@@ -460,28 +554,35 @@ function NewTaskForm({
   }
 
   return (
-    <form className="inline-form" onSubmit={submit}>
-      {error && <div className="alert">{error}</div>}
-      <input
-        className="field"
+    <form className={FORM_INLINE} onSubmit={submit}>
+      {error && (
+        <div className={ALERT_ERRORE} role="alert">
+          {error}
+        </div>
+      )}
+      <Input
+        aria-label="Nome lavoro"
         placeholder="Nome lavoro (es. Installazione impianto)"
         value={title}
         onChange={(e) => setTitle(e.target.value)}
         required
       />
       {assignableUsers.length > 0 && (
-        <select className="field" value={assignedTo} onChange={(e) => setAssignedTo(e.target.value)}>
-          <option value="">Assegna a… (facoltativo)</option>
-          {assignableUsers.map((u) => (
-            <option key={u.id} value={u.id}>
-              {u.name}
-            </option>
-          ))}
-        </select>
+        <Select
+          aria-label="Assegna il lavoro a un dipendente"
+          options={[
+            // Come in TaskRow: la voce "nessuna assegnazione" è una option normale, non
+            // la prop `placeholder` (che sarebbe disabilitata e non riselezionabile).
+            { value: '', label: 'Assegna a… (facoltativo)' },
+            ...assignableUsers.map((u) => ({ value: u.id, label: u.name })),
+          ]}
+          value={assignedTo}
+          onChange={(e) => setAssignedTo(e.target.value)}
+        />
       )}
-      <button className="btn-primary" disabled={busy} type="submit">
-        {busy ? '…' : '+ Aggiungi lavoro'}
-      </button>
+      <Button type="submit" variant="primary" fullWidth loading={busy}>
+        + Aggiungi lavoro
+      </Button>
     </form>
   );
 }

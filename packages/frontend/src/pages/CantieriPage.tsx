@@ -2,8 +2,9 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../lib/api';
 import type { ProjectTipoCommessa, Project } from '../lib/types';
-import { CalendarIcon, ArrowRightIcon } from '../components/icons';
+import { CalendarIcon, ArrowRightIcon, CraneIcon } from '../components/icons';
 import { etichettaCantiere, formatDate, PROJECT_STATUS_LABELS } from '../lib/format';
+import { Button, Card, EmptyState, Input } from '../components/ui';
 
 const PAGE_SIZE = 20;
 
@@ -11,6 +12,22 @@ const TABS: { key: ProjectTipoCommessa; label: string }[] = [
   { key: 'consuntivo', label: 'Consuntivo' },
   { key: 'contratto', label: 'A contratto' },
 ];
+
+// Classi ricorrenti del design system, scritte una volta sola invece di ripeterle in
+// ogni punto in cui compaiono. Stesse stringhe già usate in DashboardPage: restano
+// duplicate lì e qui finché non ci sarà un modulo condiviso per gli stili di pagina.
+const LINK_DETTAGLIO =
+  'flex items-center gap-1 text-sm font-medium text-primary-600 transition-colors hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300';
+
+const RIGA_ELENCO =
+  'rounded-lg border border-surface-200 bg-white transition-shadow hover:shadow-card-hover dark:border-surface-700 dark:bg-surface-800';
+
+const ALERT_ERRORE =
+  'rounded-lg border border-danger-200 bg-danger-50 px-3 py-2.5 text-sm font-medium text-danger-600 dark:border-danger-800 dark:bg-danger-900/30 dark:text-danger-400';
+
+const TESTO_ATTENUATO = 'text-sm text-surface-500 dark:text-surface-400';
+
+const FORM_INLINE = 'mt-4 flex flex-col gap-3 border-t border-surface-200 pt-4 dark:border-surface-700';
 
 export default function CantieriPage() {
   const [tab, setTab] = useState<ProjectTipoCommessa>('consuntivo');
@@ -48,16 +65,18 @@ export default function CantieriPage() {
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h1 className="m-0 text-2xl font-semibold text-gray-900">Cantieri</h1>
+        <h1 className="m-0 text-2xl font-semibold text-surface-900 dark:text-surface-100">Cantieri</h1>
       </div>
 
-      <div className="flex gap-1 rounded-lg bg-gray-100 p-1">
+      <div className="flex gap-1 rounded-lg bg-surface-100 p-1 dark:bg-surface-800">
         {TABS.map((t) => (
           <button
             key={t.key}
             type="button"
             className={`flex-1 cursor-pointer rounded-md px-3 py-2 text-sm font-medium transition-colors ${
-              tab === t.key ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+              tab === t.key
+                ? 'bg-white text-surface-900 shadow-card dark:bg-surface-700 dark:text-surface-100'
+                : 'text-surface-500 hover:text-surface-700 dark:text-surface-400 dark:hover:text-surface-200'
             }`}
             onClick={() => setTab(t.key)}
           >
@@ -66,30 +85,45 @@ export default function CantieriPage() {
         ))}
       </div>
 
-      {error && <div className="alert">{error}</div>}
+      {error && (
+        <div className={ALERT_ERRORE} role="alert">
+          {error}
+        </div>
+      )}
 
-      <section className="card">
-        <p className="muted mb-3">
+      <Card>
+        <p className={`${TESTO_ATTENUATO} mb-3`}>
           {total} cantier{total === 1 ? 'e' : 'i'} {tab === 'consuntivo' ? 'a consuntivo' : 'a contratto'}
         </p>
-        {loading && <p className="muted">Caricamento…</p>}
-        {projects.length === 0 && !loading && <p className="muted">Nessun cantiere in questa categoria. Creane uno.</p>}
-        <ul className="list">
+        {loading && <p className={TESTO_ATTENUATO}>Caricamento…</p>}
+        {projects.length === 0 && !loading && (
+          <EmptyState
+            title="Nessun cantiere in questa categoria"
+            description="Creane uno con il modulo qui sotto."
+            icon={<CraneIcon className="h-10 w-10" />}
+          />
+        )}
+        <ul className="m-0 flex list-none flex-col gap-2 p-0">
           {projects.map((p) => (
-            <li key={p.id} className="list-item">
-              <Link to={`/cantieri/${p.id}`} className="flex items-center justify-between gap-4">
+            <li key={p.id} className={RIGA_ELENCO}>
+              <Link
+                to={`/cantieri/${p.id}`}
+                className="flex items-center justify-between gap-4 rounded-lg p-3 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
+              >
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-mono text-sm text-gray-400">{etichettaCantiere(p.code, p.projectNumber, p.tipoCommessa)}</span>
-                    <strong className="truncate font-medium text-gray-900">{p.name}</strong>
+                    <span className="font-mono text-sm text-surface-500 dark:text-surface-400">
+                      {etichettaCantiere(p.code, p.projectNumber, p.tipoCommessa)}
+                    </span>
+                    <strong className="truncate font-medium text-surface-900 dark:text-surface-100">{p.name}</strong>
                     <span className={`badge badge-${p.status}`}>{PROJECT_STATUS_LABELS[p.status]}</span>
                   </div>
-                  <div className="mt-1 flex items-center gap-1 text-sm text-gray-500">
+                  <div className="mt-1 flex items-center gap-1 text-sm text-surface-500 dark:text-surface-400">
                     <CalendarIcon className="h-4 w-4" />
                     Creato il {formatDate(p.createdAt)}
                   </div>
                 </div>
-                <span className="list-link shrink-0">
+                <span className={`${LINK_DETTAGLIO} shrink-0`}>
                   Dettagli <ArrowRightIcon />
                 </span>
               </Link>
@@ -98,16 +132,21 @@ export default function CantieriPage() {
         </ul>
 
         {totalPages > 1 && (
-          <div className="mt-4 flex items-center justify-between border-t border-gray-200 pt-4">
-            <button className="btn-secondary" disabled={page <= 1 || loading} onClick={() => load(tab, page - 1)}>
+          <div className="mt-4 flex items-center justify-between border-t border-surface-200 pt-4 dark:border-surface-700">
+            <Button variant="secondary" size="sm" disabled={page <= 1 || loading} onClick={() => load(tab, page - 1)}>
               ← Precedente
-            </button>
-            <span className="muted">
+            </Button>
+            <span className={TESTO_ATTENUATO}>
               Pagina {page} di {totalPages}
             </span>
-            <button className="btn-secondary" disabled={page >= totalPages || loading} onClick={() => load(tab, page + 1)}>
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={page >= totalPages || loading}
+              onClick={() => load(tab, page + 1)}
+            >
               Successiva →
-            </button>
+            </Button>
           </div>
         )}
 
@@ -116,7 +155,7 @@ export default function CantieriPage() {
             comparire nell'altra lista, sorprendendo l'utente; niente più tendina "Tipo"
             da scegliere a mano, il tipo è quello della tab attiva. */}
         <NewProjectForm key={tab} tipoCommessa={tab} onCreated={() => load(tab, page)} />
-      </section>
+      </Card>
     </div>
   );
 }
@@ -144,30 +183,34 @@ function NewProjectForm({ tipoCommessa, onCreated }: { tipoCommessa: ProjectTipo
   }
 
   return (
-    <form className="inline-form" onSubmit={submit}>
-      <h3>Nuovo cantiere {tipoCommessa === 'consuntivo' ? 'a consuntivo' : 'a contratto'}</h3>
-      {error && <div className="alert">{error}</div>}
-      <label htmlFor="cantiere-nome">Nome cantiere</label>
-      <input
+    <form className={FORM_INLINE} onSubmit={submit}>
+      <h3 className="m-0 text-sm font-semibold text-surface-900 dark:text-surface-100">
+        Nuovo cantiere {tipoCommessa === 'consuntivo' ? 'a consuntivo' : 'a contratto'}
+      </h3>
+      {error && (
+        <div className={ALERT_ERRORE} role="alert">
+          {error}
+        </div>
+      )}
+      <Input
         id="cantiere-nome"
-        className="field"
+        label="Nome cantiere"
         placeholder="Nome cantiere"
         value={name}
         onChange={(e) => setName(e.target.value)}
         required
       />
-      <label htmlFor="cantiere-codice">Codice cantiere (facoltativo)</label>
-      <input
+      <Input
         id="cantiere-codice"
-        className="field"
+        label="Codice cantiere (facoltativo)"
         placeholder="es. CANT-04 — se vuoto uso il formato automatico"
         value={code}
         onChange={(e) => setCode(e.target.value)}
         maxLength={50}
       />
-      <button className="btn-primary" disabled={busy} type="submit">
-        {busy ? '…' : 'Crea cantiere'}
-      </button>
+      <Button type="submit" variant="primary" fullWidth loading={busy}>
+        Crea cantiere
+      </Button>
     </form>
   );
 }
