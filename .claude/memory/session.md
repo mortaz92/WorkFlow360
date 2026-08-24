@@ -1,7 +1,95 @@
 # WorkFlow360 — Stato Sessione
 
-**Data e ora salvataggio:** 20/08/2026, dopo la ripresa da `HANDOFF_restyle-cantieri-archivio-ruoli_2026-08-20.md` + piano deploy pubblico
+## ⚠️ RIPRESA 24/08 — trovato lavoro NON salvato di una sessione precedente (22/08), mai documentato
+
+**Nota tecnica sull'ambiente**: sessione partita ancora una volta nel worktree SBAGLIATO (`solana-bot-web\.claude\worktrees\workflow360-render-deploy-ad4ec8`) — stesso problema già segnalato negli handoff del 20/08 e 21/08. Operato con percorsi assoluti su `C:\Users\morta\OneDrive\Skrivbord\workflow360`, mai `cd` implicito.
+
+**Punto 1 di "Prossimi passi" (handoff 21/08) VERIFICATO CON DATI REALI, non chiedendo all'utente**: aperta `https://workflow360-web.onrender.com/login` in un browser pulito (nessuna cache locale), letto l'albero DOM reale — bottone "Mostra password" presente (`ref_8`, `type="button"`), poi controllato via JS eseguito nella pagina: `display:flex`, `visibility:visible`, `opacity:1`, rettangolo 40×42px dentro il viewport 1280×720, contiene l'SVG a forma di occhio corretto. **L'icona è deployata e funziona** — il problema del 21/08 era quasi certamente cache locale del service worker sul dispositivo dell'utente, non un bug reale.
+
+**SCOPERTA IMPORTANTE, non presente in nessun handoff né in questo file prima d'ora**: `git status` sul repository mostra modifiche NON committate, con timestamp **22/08 (tra le 21:07 e le 21:37)** — cioè una sessione intera è avvenuta dopo l'handoff del 21/08 e non ha mai salvato/documentato nulla (nessun handoff scritto, nessuna voce in questo file, nessun commit).
+
+Contenuto del lavoro non salvato — un restyle UI significativo:
+- **Nuova cartella `packages/frontend/src/components/ui/`** (mai tracciata da git): `Badge.tsx`, `Button.tsx`, `Card.tsx`, `EmptyState.tsx`, `Input.tsx`, `Select.tsx`, `Skeleton.tsx`, `Table.tsx`, `Textarea.tsx`, `Toast.tsx`, `index.ts` — una vera e propria libreria di componenti UI, 11 file.
+- **Nuovo `packages/frontend/tailwind.config.ts`** (mai tracciato): config in stile Tailwind v3 classico con scale colore custom (`primary`, `surface`, ecc.).
+- **Modificati e non committati**: `AppLayout.tsx` (+250/-~90 righe), `icons.tsx` (+70), `ForgotPasswordPage.tsx` (+103/-~70), `LoginPage.tsx` (+165/-~120), `ResetPasswordPage.tsx` (+152/-~100).
+
+**Incoerenza tecnica trovata leggendo il codice reale (non presunta)**: il progetto usa Tailwind **v4** con plugin Vite zero-config (`@tailwindcss/vite`, `index.css` con `@import "tailwindcss"` — decisione esplicita e documentata più sotto in questo file, sessione del 09/08). Il nuovo `tailwind.config.ts` è in stile v3 (oggetto `theme.extend.colors` classico). In Tailwind v4 un file `tailwind.config.ts` non viene letto automaticamente: serve una direttiva `@config "./tailwind.config.ts"` dentro `index.css`, che **non risulta modificato** (non è tra i file toccati). Quindi, allo stato attuale, quel file di configurazione con ogni probabilità **non ha alcun effetto** — la sessione del 22/08 sembra essersi interrotta a metà, prima di collegare la nuova config.
+
+**NON toccato/deciso in autonomia** (serve una decisione dell'utente, non deducibile dal codice): se questo lavoro va ripreso e completato, rivisto, o scartato. Nessun file è stato modificato o eliminato durante questa verifica.
+
+**Decisione dell'utente (bottoni): "Completalo ora".** Lavoro di completamento fatto in questa sessione:
+
+- **Aggiunta la riga mancante** in `packages/frontend/src/index.css`: `@config "../tailwind.config.ts";` subito dopo `@import "tailwindcss";`. Verificato che Tailwind v4 (versione installata 4.3.3, plugin `@tailwindcss/vite`) supporta davvero questa direttiva **con un test reale, non a teoria**: build di produzione (`npm run build --workspace=packages/frontend`) e poi grep nel CSS compilato per classi che esistono SOLO nel nuovo `tailwind.config.ts` (`shadow-card`, `bg-primary-950`) — entrambe presenti nel bundle finale. Se non lo fossero state, la config sarebbe stata silenziosamente ignorata.
+- **`npx tsc -b` e `vite build` puliti** (fanno parte dello script `build` del frontend) — nessun errore nei nuovi componenti `components/ui/*` né nelle pagine restilizzate.
+- **Verifica visiva nel browser** (dev server locale `npm run dev:frontend` su porta 5173, workaround `nohup` sempre necessario per questo progetto — vedi note precedenti, PID del processo node: **7920**, da terminare a mano se non serve più): `/login`, `/forgot-password`, `/reset-password` renderizzano correttamente, nessun errore console legato al restyle. Dark mode verificato via `prefers-color-scheme` (sfondo `rgb(10,10,10)` = `surface-950` in dark, `rgb(250,250,250)` = `surface-50` in light — coincide esattamente con i valori del nuovo `tailwind.config.ts`, non dedotto). Toggle mostra/nascondi password in `LoginPage.tsx` e `ResetPasswordPage.tsx` verificato funzionante (l'attributo `type` dell'input cambia realmente tra `password`/`text`).
+- **Login locale testato**: risposta 500 attesa e non allarmante — Docker/Postgres non erano attivi in questa sessione (`docker ps` fallito, demone non in esecuzione) e il backend locale (`dev:backend`) non è stato avviato, quindi il proxy Vite su `/api/v1/auth/login` non aveva nulla dietro. **Nessun dato reale è uscito verso l'esterno**: la richiesta restava su `localhost:5173`, mai verso il backend di produzione (confermato leggendo `.env` locale: `VITE_API_BASE_URL=http://localhost:4000/api/v1`). L'email admin reale comparsa nel campo durante il test era autofill del browser per l'origine locale (credenziale salvata da una sessione locale precedente), non qualcosa che ho digitato io; la password inviata era una stringa di prova inventata per il test, non quella reale.
+
+**⚠️ IMPORTANTE, da comunicare esplicitamente all'utente — la parte NON completata**: il restyle del 22/08 copre SOLO 4 file (`LoginPage`, `ForgotPasswordPage`, `ResetPasswordPage`, `AppLayout` + `icons.tsx` + la nuova libreria `components/ui/`). **Tutte le altre pagine dell'app** (`DashboardPage`, `CantieriPage`, `CantiereDetailPage`, `DipendentiPage`, `DipendenteDetailPage`, `ReportPage`, `ArchivioPage`, `OperaioPage` e i componenti che usano, es. `TabellaOre`, `RegistroCantiere`) **restano sul vecchio sistema** (classi `.btn-primary`/`.card`/`.field` da `index.css`, palette `blue-*`/`gray-*` standard, **nessun supporto dark mode**) — verificato con un grep mirato su `DashboardPage.tsx` (zero occorrenze di `dark:`/`surface-`/`primary-600`). Conseguenza pratica: una volta loggato, l'utente vedrebbe una sidebar/header (AppLayout) con supporto dark mode accanto a pagine di contenuto che restano sempre chiare e con la vecchia palette — incoerenza visiva reale, non ipotetica. Estendere il nuovo design system al resto dell'app è un lavoro sostanzialmente più grande (8+ pagine, più componenti condivisi) e NON è stato fatto in questa sessione — decisione lasciata all'utente se/quando procedere.
+
+**Non ancora fatto**: nessun commit. Per la regola del progetto (REGOLA PUBBLICAZIONE) commit/push passano sempre da conferma esplicita dell'utente — in attesa.
+
+
+**Data e ora salvataggio:** 21/08/2026, dopo il primo DEPLOY REALE su Render (successo) + fix post-deploy
+
+## 🎉 PRIMO DEPLOY REALE COMPLETATO (21/08) — app online e funzionante
+
+Blueprint creato su Render (database `workflow360-db` + backend `workflow360-api` + frontend `workflow360-web`, tutti piano Free). URL pubblici: `https://workflow360-web.onrender.com` (frontend), `https://workflow360-api.onrender.com` (backend).
+
+**Primo tentativo FALLITO** con `PostgresError: type "tipo_commessa" does not exist` — bug preesistente scoperto solo ora (drift storico: quel tipo enum esisteva già sul DB locale, creato a mano prima delle migrazioni vere, mai catturato in nessun file `.sql`). Corretto con un blocco `DO/EXCEPTION` in `drizzle/0002_yellow_salo.sql` (commit `5e8c295`), verificato sicuro da applicare a una migrazione già "superata" cronologicamente su altri DB (drizzle-orm decide solo per timestamp, mai per hash/contenuto — verificato leggendo `node_modules/drizzle-orm/pg-core/dialect.js`). **Secondo tentativo: successo**, "Migrazioni applicate con successo", servizio live.
+
+**Poi aggiunta la rotta `PATCH /companies/:id`** (commit `a8851a8`) su richiesta esplicita dell'utente: voleva creare un'azienda demo col bootstrap per mostrarla ai clienti, ma prima non c'era modo di rinominarla dopo. Deployata con successo.
+
+**Bootstrap del primo admin fatto** (`npm run bootstrap:admin` lanciato dall'utente dal suo PC) — MA prima ha richiesto la scoperta e correzione di 2 problemi reali:
+1. **`sslmode=verify-full` non funziona con la libreria `postgres` usata dal progetto** — supporta solo `true|prefer|require` (verificato dal README della libreria in `node_modules`). Era stato consigliato `verify-full` in una sessione precedente (raccomandazione del security agent, MAI verificata contro la libreria reale) — **CORRETTO in `bootstrap-admin.ts` (commento d'uso) e `GUIDA-DEPLOY.md`: torna a `sslmode=require`.**
+2. **Bug reale scoperto USANDO il sistema**: login falliva con "credenziali non valide" per l'admin appena creato. Causa: l'email è stata creata con un case diverso da quello poi digitato al login (`Gmail.com` vs `gmail.com`), e **il confronto email nel backend è case-sensitive** (nessuna normalizzazione da nessuna parte, verificato in `auth.service.ts`/`LoginPage.tsx`). **CORRETTO ALLA RADICE su richiesta esplicita dell'utente**: nuovo `core/validation.ts` con `emailSchema` (trim+lowercase prima del check di formato), usato in `users.routes.ts` (create+update) e `auth.routes.ts` (login+forgot-password) e in `bootstrap-admin.ts`/`seed-dev.ts`. **Nuova migrazione `0010_normalize_user_emails.sql`** (+ snapshot `0010`, + entry nel journal) che normalizza a minuscolo le email GIÀ salvate (incluso l'account admin appena creato in produzione) — senza questa, il fix del codice da solo non avrebbe risolto il problema per l'utente esistente.
+
+**Bonus richiesto dall'utente**: toggle "mostra/nascondi password" (icona occhio) nel form di login (`LoginPage.tsx`) — verificato dal vivo nel browser che alterna `type="password"`/`type="text"` correttamente.
+
+**Verificato dopo tutte le correzioni**: `npx tsc --noEmit` pulito, `npm run db:generate` → "No schema changes" (schema TS e snapshot coerenti), `npm run db:migrate` in locale → applicata senza rompere nulla, `npm test` → **182/182 verdi**, `npm run build` backend E frontend puliti.
+
+**⚠️ SEGRETI ESPOSTI IN CHAT DURANTE QUESTA SESSIONE — l'utente ne è stato avvisato**: la password del database di produzione (l'intera External Database URL, con utente+password) è finita scritta in chiaro in chat DUE VOLTE durante il debug del bootstrap. Consigliato esplicitamente all'utente di rigenerarla da Render appena possibile — **non confermato se l'ha fatto**, da chiedere/verificare alla ripresa. Anche la password scelta per l'admin (debole, valore volutamente NON riportato in un file versionato) è finita in chat una volta prima che venisse cambiata — l'utente ha poi impostato una password diversa non vista da me per il bootstrap effettivo, quella dovrebbe essere pulita.
+
+**[SUPERATO - GIA FATTO il 21/08, NON RIESEGUIRE]** commit + push di questo giro di fix (email case-insensitive, fix sslmode, toggle password): eseguito dall'agente devops, remote allineato su `c38a830` - vedi il blocco "PUSH #2 ESEGUITO 21/08" piu in alto in questo file. Dopo il push, il deploy Render partirà da solo (auto-deploy); verificare che `db:migrate` applichi la 0010 senza errori sul DB di produzione, poi far riprovare il login all'utente con l'email in minuscolo (dovrebbe funzionare anche con la maiuscola originale, ora che il confronto è case-insensitive).
+
+Restano aperti da prima: verifica empirica `trust proxy` (M4 del giro security del 20/08, mai fatta), rotazione della password del DB di produzione (appena segnalata sopra, da confermare), `README.md`/`CLAUDE.md` con info superate (fuori scope).
+
+---
 **Progetto:** C:\Users\morta\OneDrive\Skrivbord\workflow360
+
+## PUSH #2 ESEGUITO 21/08 - fix login email case-insensitive su GitHub, deploy Render ripartito
+
+**AZIONE GIA FATTA, NON RIESEGUIRE.** `git push origin master` eseguito il 21/08 dall'agente devops, dopo conferma esplicita dell'utente a bottoni ("Si, pusha"). E' il SECONDO push della giornata: viene DOPO quello documentato piu in basso (`c4e2ddf..5e8c295`), non lo sostituisce.
+
+- Push: `a8851a8..c38a830  master -> master`, fast-forward, nessun force. Questa volta il classificatore dei permessi NON ha bloccato il comando.
+- **Hash confermato sul remote** con `git ls-remote origin`: `c38a8304a10915bc100e217f2591cd19c8e6181e` sia su `HEAD` sia su `refs/heads/master` - identico al locale, allineamento verificato e non dedotto. `git status` mostra `## master...origin/master` senza "ahead".
+- Commit pushati (2): `4d1ea12` (login email case-insensitive: nuovo `core/validation.ts`, rotte auth+users, `bootstrap-admin.ts`/`seed-dev.ts`, migrazione `0010_normalize_user_emails.sql` con snapshot e journal, toggle occhio in `LoginPage.tsx`, `sslmode=require` in `GUIDA-DEPLOY.md`) e `c38a830` (correzione della data nei commenti). Totale 10 file, +1491/-26 righe.
+- Controllo segreti rifatto sul diff prima del push: nessun `.env`, nessuna chiave. Gli unici match della scansione sono nomi di variabili, un `DATABASE_URL` placeholder nella guida e la password demo `Admin123!` in `seed-dev.ts` - preesistente (non introdotta da questi commit) e protetta da `refuseIfNotLocal()`.
+- Conseguenza: Render fa auto-deploy su ogni push a `master`, quindi il deploy del backend e ripartito da solo al momento del push, senza altre azioni.
+
+**PROSSIMO PASSO ESATTO**: verificare nel log di deploy Render che `db:migrate` applichi la migrazione `0010` senza errori sul DB di produzione, poi far riprovare il login all'utente (deve funzionare sia con l'email tutta minuscola sia con la maiuscola originale). L'agente non ha accesso al pannello Render: quella verifica la fa l'utente. Avvertenza gia imparata al push precedente: una sonda su `/api/v1/health` subito dopo il push NON dimostra che sia in linea la build nuova, Render tiene su la vecchia istanza finche la nuova non e pronta.
+
+**NON VERIFICATO, resta aperto**: rotazione della password del DB di produzione esposta in chat (segnalata all'utente, mai confermata); verifica empirica di `trust proxy` (M4 del giro security del 20/08).
+
+---
+
+
+## PUSH ESEGUITO 21/08 — il codice e su GitHub, il deploy Render e ripartito
+
+**AZIONE GIA FATTA, NON RIESEGUIRE.** `git push origin master` eseguito il 21/08 dall'agente devops, dopo conferma esplicita dell'utente a bottoni ("Si, pusha"). Aggiorna e supera le note piu in basso che dicono "nessun remote configurato" e "deploy vero NON ancora iniziato": erano vere il 20/08, non lo sono piu.
+
+- Remote: `origin` = https://github.com/mortaz92/WorkFlow360.git (branch `master`).
+- Push: `c4e2ddf..5e8c295  master -> master`, fast-forward, nessun force.
+- **Hash confermato sul remote** con `git ls-remote origin`: `5e8c295860ce66252f8ec16fb5e4b7d467006243` sia su `HEAD` sia su `refs/heads/master` — identico al locale, allineamento verificato non dedotto.
+- Contenuto pushato: il fix migrazione `5e8c295` ("fix: crea il tipo enum tipo_commessa nella migrazione che lo usa"), 1 solo file (`packages/backend/drizzle/0002_yellow_salo.sql`, +12 righe). Controllo segreti rifatto sul commit prima del push: nessun file sensibile.
+- Conseguenza: **Render fa auto-deploy su ogni push a `master`** — il deploy e ripartito da solo al momento del push, senza altre azioni.
+
+**PROSSIMO PASSO ESATTO**: verificare l'esito del deploy sul pannello Render (log del build e del `migrate`) e che il backend risponda su `/api/v1/health`. L'agente non ha accesso a Render: la verifica dei log la fa l'utente, oppure si controlla l'endpoint pubblico quando l'URL e noto. Il punto che il fix doveva risolvere era `PostgresError: type "tipo_commessa" does not exist` durante le migrazioni: se ricompare, il fix non ha coperto il caso.
+
+**Resta aperto e NON fatto**: la verifica empirica di `trust proxy: 1` (M4 del giro security) — richiede il servizio vivo, si fa dopo che il deploy e confermato ok.
+
+**Non committato**: questo file (`session.md`) risulta modificato nell'albero di lavoro. Le modifiche sono solo note di sessione, nessun codice.
+
+**Sonda health fatta subito dopo il push (dato grezzo, con il suo limite)**: `GET https://workflow360-api.onrender.com/api/v1/health` -> **HTTP 200 in 0,31s**, corpo `{"status":"ok","env":"production","db":"connected"}`. Due avvertenze da non perdere: (1) quell'URL non e stato fornito dall'utente, l'ho **dedotto** dal nome servizio `workflow360-api` in `render.yaml` — plausibile, non confermato; (2) una risposta 200 a ~2 minuti dal push, senza cold start, **non dimostra che sia gia in linea la build del commit `5e8c295`**: quasi certamente risponde l'istanza precedente, Render tiene su la vecchia finche la nuova non e pronta. Quindi: il servizio e vivo e il database raggiungibile, **ma l'esito del fix migrazione resta da verificare** nel log di deploy Render (o risondando l'endpoint quando il deploy risulta completato).
 
 ## 🚀 NUOVO TEMA APERTO 20/08 — deploy pubblico su Render + PWA
 
@@ -58,7 +146,23 @@ Nota metodologica del reviewer: il suo sub-agente aveva Bash disabilitato, quind
 
 **RIVERIFICATO DOPO TUTTE LE CORREZIONI DI QUESTO SECONDO GIRO (dati reali, non presunti)**: `npx tsc --noEmit` backend pulito, `bootstrap-admin.ts` standalone pulito, `npm run build` backend E frontend entrambi puliti, `npm test` backend → **178/178 verdi con DB reale** (invariato). `seed-dev.ts` standalone dà ancora gli stessi 2 errori preesistenti (non nuovi, confermato di nuovo).
 
-**PROSSIMO PASSO ESATTO**: fare il SECONDO commit (separato dal primo, come consigliato dall'architect) con tutte le modifiche della FASE 0 + le correzioni dei due giri di controllo, poi procedere con la configurazione vera su Render seguendo `GUIDA-DEPLOY.md`. Ricordare per la sessione post-deploy: verificare empiricamente `trust proxy` (M4 del giro security, non ancora fatto).
+## ✅ SECONDO COMMIT FATTO (20/08, tramite l'agente `devops`)
+
+**Hash `c4e2ddf`** — "feat: preparazione al primo deploy pubblico su Render (backend + Postgres + PWA)". 17 file (934 righe aggiunte, 133 rimosse): 4 nuovi (`render.yaml`, `.node-version`, `GUIDA-DEPLOY.md`, `bootstrap-admin.ts`), 1 eliminato (`core/db/seed.ts`), 12 modificati. Working tree pulito dopo. Nessun push (nessun remote configurato, invariato).
+
+**Controllo segreti indipendente (devops, non fidandosi dei giri precedenti)**: zero segreti reali trovati. Unico riscontro dalla scansione a pattern: le credenziali Docker locali già presenti in `.env.example` dal primo commit (`workflow360:workflow360@localhost`), non un segreto vero. `.env` reale confermato ignorato da git (`git status --ignored`).
+
+**Due cose segnalate da devops, da tenere a mente**:
+1. `.claude/memory/session.md` (questo file) è entrato anche in questo commit — era già tracciato dal primo commit, quindi per tenere l'albero pulito è stato incluso di nuovo. Se in futuro si preferisce NON avere le note di sessione nella storia git del progetto, va tolto dal tracking con un commit dedicato (non deciso, da chiedere all'utente se rilevante).
+2. `scripts/seed-dev.ts` riga 39 ha ancora `'Admin123!'` come default — preesistente dal primo commit, MAI stato un problema perché non era mai stato usato su un DB reale, e questo stesso commit gli aggiunge la guardia (`refuseIfNotLocal`) che ora impedisce esplicitamente di usarlo contro Render. Non va "rigenerato": è un default di sviluppo, non un segreto di produzione.
+
+## 🎯 STATO ATTUALE: codice pronto, deploy vero NON ancora iniziato
+
+Il lavoro di preparazione (FASE 0 + 2 giri di controllo indipendenti + 2 commit separati) è concluso. **Prossimo passo dipende dall'utente**: seguire `GUIDA-DEPLOY.md` per creare i servizi veri su Render (richiede il suo account — l'agente non ha accesso a Render). Due sotto-punti ancora aperti quando si arriva a quel momento:
+1. Il repository va prima pubblicato su GitHub (Render legge il codice da lì) — non ancora fatto, nessun remote configurato. Da chiedere esplicitamente prima di aggiungerne uno.
+2. **Dopo** il primo deploy reale (non prima, serve il servizio vivo per testarlo): verificare empiricamente `trust proxy: 1` — loggare `req.ip` vs `req.headers['x-forwarded-for']` su `/api/v1/health` chiamato da un telefono in rete dati, deve coincidere con l'IP pubblico del telefono (altrimenti il rate limit sul login diventa condiviso da tutti gli utenti invece che per persona).
+
+**Rimane fuori scope, per una sessione futura dedicata**: `README.md`/`CLAUDE.md` con informazioni superate (6 ruoli invece di 3, endpoint login descritto diverso da come risponde davvero, conteggio test sbagliato).
 
 **Decisioni prese con l'utente (bottoni):** obiettivo "app vera per desktop (qualsiasi SO) e telefono (qualsiasi tipo), facile da scaricare". Scelto: (1) **solo PWA** per ora, non store nativi/Capacitor (eventuale passo successivo); (2) **hosting: Render** per backend+DB (l'utente lo usa già per il bot Solana, familiarità col piano free che si addormenta).
 

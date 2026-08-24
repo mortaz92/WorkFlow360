@@ -176,6 +176,41 @@ export function SearchIcon({ className = 'h-5 w-5' }: IconProps) {
   );
 }
 
+export function ChevronRightIcon({ className = 'h-4 w-4' }: IconProps) {
+  return (
+    <svg {...BASE_PROPS} className={className} aria-hidden="true">
+      <path d="M7.5 4.5 13 10l-5.5 5.5" />
+    </svg>
+  );
+}
+
+export function ChevronDownIcon({ className = 'h-4 w-4' }: IconProps) {
+  return (
+    <svg {...BASE_PROPS} className={className} aria-hidden="true">
+      <path d="M5.5 7.5 10 12l4.5-4.5" />
+    </svg>
+  );
+}
+
+export function MenuIcon({ className = 'h-6 w-6' }: IconProps) {
+  return (
+    <svg {...BASE_PROPS} className={className} aria-hidden="true">
+      <line x1="3" y1="5" x2="17" y2="5" />
+      <line x1="3" y1="10" x2="17" y2="10" />
+      <line x1="3" y1="15" x2="17" y2="15" />
+    </svg>
+  );
+}
+
+export function XIcon({ className = 'h-4 w-4' }: IconProps) {
+  return (
+    <svg {...BASE_PROPS} className={className} aria-hidden="true">
+      <line x1="5" y1="5" x2="15" y2="15" />
+      <line x1="15" y1="5" x2="5" y2="15" />
+    </svg>
+  );
+}
+
 export function BellIcon({ className = 'h-5 w-5' }: IconProps) {
   return (
     <svg {...BASE_PROPS} className={className} aria-hidden="true">
@@ -185,10 +220,41 @@ export function BellIcon({ className = 'h-5 w-5' }: IconProps) {
   );
 }
 
-export function ChevronRightIcon({ className = 'h-4 w-4' }: IconProps) {
+export function UserIcon({ className = 'h-5 w-5' }: IconProps) {
   return (
     <svg {...BASE_PROPS} className={className} aria-hidden="true">
-      <path d="M7.5 4.5 13 10l-5.5 5.5" />
+      <circle cx="10" cy="7" r="4" />
+      <path d="M3 17c0-3.5 2.5-6 7-6s7 2.5 7 6" />
+    </svg>
+  );
+}
+
+export function BuildingIcon({ className = 'h-5 w-5' }: IconProps) {
+  return (
+    <svg {...BASE_PROPS} className={className} aria-hidden="true">
+      <rect x="3" y="7" width="14" height="10" rx="1" />
+      <path d="M5 7V4a1 1 0 0 1 1-1h8a1 1 0 0 1 1 1v3" />
+      <rect x="5.5" y="10" width="3" height="4" />
+      <rect x="11.5" y="10" width="3" height="4" />
+    </svg>
+  );
+}
+
+export function ClipboardIcon({ className = 'h-5 w-5' }: IconProps) {
+  return (
+    <svg {...BASE_PROPS} className={className} aria-hidden="true">
+      <rect x="4" y="3" width="12" height="14" rx="1.5" />
+      <rect x="7" y="1.5" width="6" height="3" rx="0.5" />
+      <path d="M6 10h8M6 13.5h8" />
+    </svg>
+  );
+}
+
+export function ArchiveIcon({ className = 'h-5 w-5' }: IconProps) {
+  return (
+    <svg {...BASE_PROPS} className={className} aria-hidden="true">
+      <path d="M3 5h14M3 5v12a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V5" />
+      <path d="M7 8v8M13 8v8" />
     </svg>
   );
 }
