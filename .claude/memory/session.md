@@ -14,7 +14,7 @@ Dopo il push del restyle (sezioni sotto), l'utente ha chiesto se il progetto è 
 
 **⚠️ NON verificato con test automatici, da dire chiaramente**: Docker Desktop non è mai partito in questo ambiente (stesso problema della sessione precedente — motore WSL `docker-desktop` resta `Stopped`, `docker ps`/`docker info` restano appesi), confermato con DUE tentativi indipendenti (l'agente developer + un mio poll separato, ~5 minuti di retry ciascuno). **I test vitest per l'anonimizzazione non sono mai stati eseguiti** (falliscono tutti in `beforeAll` con `ECONNREFUSED 127.0.0.1:5432`, insieme a TUTTA la suite esistente — non è un problema introdotto da questa sessione). Compensato con: `npx tsc --noEmit` pulito (verificato da me in autonomia, non solo dall'agente) sia su backend che frontend, `vite build` di produzione pulito (66 moduli, +2 rispetto alla baseline per le due nuove pagine), verifica visiva reale nel browser di `/privacy`, `/termini` e del footer di `/login` (contenuto renderizzato, link funzionanti), e una revisione manuale riga-per-riga della logica di `anonymizeUser`/`assertCanRemoveAdminAccess` e dei suoi 8 test — nessun difetto trovato, ma questa NON è una prova pari a un test eseguito con successo.
 
-**Commit creato dopo questa nota** (vedi sezione successiva): hash `1698c9f`, solo locale, non pushato.
+**Commit creato dopo questa nota** (vedi sezione successiva): hash `1698c9f` — poi riscritto con `--amend` in `5662e47` e **pushato su origin/master il 25/08** (vedi sezione 25/08 in fondo a questo blocco).
 
 ## 24/08 (continuazione 2) — Docker sbloccato, gli 8 test dell'anonimizzazione girati DAVVERO
 
@@ -22,7 +22,19 @@ Dopo il push del restyle (sezioni sotto), l'utente ha chiesto se il progetto è 
 
 Con Docker su: `docker compose up -d postgres` (già configurato in `docker-compose.yml`, credenziali `workflow360`/`workflow360`, porta 5432 — combacia con `DATABASE_URL` in `.env`), poi `npx drizzle-kit migrate` in `packages/backend` (pulito, nessuna migrazione pendente), poi `npx vitest run`:
 
-**189/189 test passati, 10 file di test, inclusi tutti e 8 i nuovi test dell'anonimizzazione** (`users.test.ts`, 26 test totali, 7.9s). Nessun fallimento, nessuno skippato. Questa è ora una verifica reale, non più solo type-check + revisione manuale — la cautela nel messaggio di commit `1698c9f` ("test mai eseguiti") è quindi superata dai fatti: sono stati eseguiti dopo, e passano tutti. Non ho ancora deciso con l'utente se modificare il messaggio del commit esistente o lasciarlo com'era e basta (la regola del progetto sconsiglia di default il git amend).
+**189/189 test passati, 10 file di test, inclusi tutti e 8 i nuovi test dell'anonimizzazione** (`users.test.ts`, 26 test totali, 7.9s). Nessun fallimento, nessuno skippato. Questa è ora una verifica reale, non più solo type-check + revisione manuale — la cautela nel messaggio di commit `1698c9f` ("test mai eseguiti") è quindi superata dai fatti: sono stati eseguiti dopo, e passano tutti. L'utente ha poi chiesto ESPLICITAMENTE di aggiornare il messaggio del commit: fatto il 25/08 (sezione seguente).
+
+## 25/08 — messaggio di commit corretto (amend) e PUSH su master: deploy Render PARTITO
+
+**GIA' ESEGUITO, non ripetere.** Su richiesta esplicita dell'utente (amend autorizzato in via eccezionale, di norma si evita):
+
+1. `git add .claude/memory/session.md` (solo quel file; i due HANDOFF in `docs/handoffs/` restano non tracciati per convenzione, non toccati).
+2. `git commit --amend -F <file>` con il messaggio riscritto: tolta la frase sui test mai eseguiti, sostituita con la verifica reale (189/189 test, 10 file, inclusi gli 8 dell'anonimizzazione, dopo aver risolto il blocco Docker). **Mantenuti** i limiti ancora veri: privacy/ToS restano una BOZZA da far validare da un avvocato, e il flusso di rimozione dipendente non e' stato provato end-to-end dal browser.
+3. `git push origin master` **normale, senza force** (fast-forward pulito: `d0f370b..5662e47` — il commit non era mai stato pubblicato).
+
+**Hash**: `1698c9f` (vecchio, non esiste piu' come ref) → **`5662e474231b404c8e5641b30413beb32243252d`**. Verificato con `git ls-remote origin master`: il remote combacia con l'HEAD locale, working tree pulito, `master...origin/master` allineati.
+
+**⚠️ CONSEGUENZA ESTERNA GIA' AVVENUTA**: il push su `master` fa ripartire il **deploy automatico su Render** di `workflow360-api` e `workflow360-web` (entrambi agganciati a `master`). Alla ripresa: NON ri-pushare, semmai controllare lo stato del deploy sulla dashboard Render e che l'API risponda. Nessun altro commit creato oltre a questo amend.
 
 ## ⚠️ RIPRESA 24/08 — trovato lavoro NON salvato di una sessione precedente (22/08), mai documentato
 
