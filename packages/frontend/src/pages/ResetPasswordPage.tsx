@@ -5,6 +5,8 @@ import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '../components/ui/Card';
 import { BuildingIcon } from '../components/icons';
+import loginBackground from '../assets/login-construction-bg.jpg';
+import loginBackgroundVideo from '../assets/login-construction-bg.mp4';
 
 export default function ResetPasswordPage() {
   // Letto una sola volta al mount, poi ripulito dalla barra degli indirizzi: un
@@ -45,8 +47,19 @@ export default function ResetPasswordPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-surface-50 dark:bg-surface-950 p-4">
-      <Card variant="elevated" className="w-full max-w-md">
+    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-surface-50 dark:bg-surface-950 p-4">
+      <video
+        className="absolute inset-0 h-full w-full object-cover"
+        src={loginBackgroundVideo}
+        poster={loginBackground}
+        autoPlay
+        loop
+        muted
+        playsInline
+        aria-hidden="true"
+      />
+      <div className="absolute inset-0 bg-gradient-to-t from-surface-50/70 via-surface-50/10 to-transparent dark:from-surface-950/85 dark:via-surface-950/40 dark:to-surface-950/10" />
+      <Card variant="elevated" className="relative z-10 w-full max-w-md">
         <CardHeader className="text-center pb-4">
           <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-primary-600 text-white">
             <BuildingIcon className="h-7 w-7" />
