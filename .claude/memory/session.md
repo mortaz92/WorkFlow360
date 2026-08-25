@@ -36,6 +36,8 @@ Con Docker su: `docker compose up -d postgres` (già configurato in `docker-comp
 
 **⚠️ CONSEGUENZA ESTERNA GIA' AVVENUTA**: il push su `master` fa ripartire il **deploy automatico su Render** di `workflow360-api` e `workflow360-web` (entrambi agganciati a `master`). Alla ripresa: NON ri-pushare, semmai controllare lo stato del deploy sulla dashboard Render e che l'API risponda. Nessun altro commit creato oltre a questo amend.
 
+**Commit di chiusura, GIA' PUSHATO**: su richiesta dell'utente, questa stessa cronaca di sessione (blocco Docker + verifica reale dei test) e' stata committata a parte — `a901538c4c3b754d697220c1875daeaa763d2548` ("docs: aggiorna la memoria di sessione con lo sblocco di Docker e l'esito reale dei test"), un solo file (`session.md`), nessun codice applicativo. Pushato su `origin/master` in fast-forward pulito (`5662e47..a901538`), verificato con `git ls-remote`. Fa ripartire di nuovo il deploy Render per lo stesso motivo di sopra, ma senza alcun cambiamento di comportamento dell'app (nessun file di codice toccato). Alla ripresa: **NON ri-pushare neanche questo**, il repo e' allineato a `origin/master`.
+
 ## ⚠️ RIPRESA 24/08 — trovato lavoro NON salvato di una sessione precedente (22/08), mai documentato
 
 **Nota tecnica sull'ambiente**: sessione partita ancora una volta nel worktree SBAGLIATO (`solana-bot-web\.claude\worktrees\workflow360-render-deploy-ad4ec8`) — stesso problema già segnalato negli handoff del 20/08 e 21/08. Operato con percorsi assoluti su `C:\Users\morta\OneDrive\Skrivbord\workflow360`, mai `cd` implicito.
