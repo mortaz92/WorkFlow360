@@ -18,7 +18,9 @@ backend Express già completo in `packages/backend`. Il backend gira su `http://
 
 ### Auth
 - `POST /api/v1/auth/login`  body: `{ email, password }` → `{ token, user: { id, email, role, companyId } }`
-- Ruoli possibili: `admin`, `project_manager`, `resource`, `qa`, `stakeholder`, `operaio`.
+- Ruoli possibili: `admin`, `project_manager`, `operaio` (ridotti da un set iniziale di sei
+  il 20/08 — `resource`/`qa`/`stakeholder` tolti perché senza funzioni reali collegate;
+  vedi `core/db/schema/users.ts`).
 - `POST /api/v1/auth/forgot-password` body: `{ email }` → sempre `200` con lo stesso messaggio,
   esista o no l'email (anti-enumerazione). Se l'utente esiste ed è attivo, invia un'email via
   Resend con un link di reset (`RESEND_API_KEY` facoltativa: senza, il backend si avvia comunque
@@ -121,11 +123,14 @@ backend Express già completo in `packages/backend`. Il backend gira su `http://
   cantiere -> lavoro -> dipendente senza toccare il backend/DB manualmente.
 
 ## DA FARE (priorita' da concordare con l'utente)
-- **RESTYLE FRONTEND PROFESSIONALE**: l'UI attuale e' funzionale ma grezza. L'utente vuole
-  aspetto da gestionale/SaaS serio. Valutare Tailwind + sidebar + card + tabelle styled.
-  CHIEDERE CONFERMA SULLO STILE (colori, sidebar vs topbar, chiaro/scuro) prima di rifare tutto.
-- Registrazione pubblica autonoma (decisa ma non fatta): sicurezza automatica.
-- F9: billing (Stripe/PayPal) + deploy.
+- ~~RESTYLE FRONTEND PROFESSIONALE~~ — **fatto (22-24/08)**: design system Tailwind v4 con
+  componenti riutilizzabili (`components/ui/`), sidebar, dark mode, esteso a tutta l'app.
+- ~~Deploy~~ — **fatto**: in produzione su Render (`workflow360-api` + `workflow360-web`).
+- Registrazione pubblica autonoma di una nuova azienda: questa nota diceva "decisa ma non
+  fatta", ma il codice reale (`companies.routes.ts`) dichiara esplicitamente che NON e'
+  prevista in questa fase ("SaaS single-tenant-per-deploy") — le due cose sono in contraddizione,
+  quindi e' una decisione di prodotto da riprendere con l'utente, non solo un lavoro da fare.
+- F9: billing (Stripe/PayPal) — non ancora iniziato.
 
 ## Vincoli
 - Lingua UI: **italiano**.
