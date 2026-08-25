@@ -31,7 +31,8 @@ backend Express già completo in `packages/backend`. Il backend gira su `http://
 ### Users (solo admin; max 3 admin per azienda, hard-limit 409)
 - `GET /api/v1/users` → lista utenti della propria azienda (paginato: page, limit)
 - `POST /api/v1/users` body: `{ email, name, role, password }` → crea utente (solo admin)
-- `GET /api/v1/users/:id`, `PATCH /api/v1/users/:id`, `DELETE /api/v1/users/:id` (soft delete)
+- `GET /api/v1/users/:id`, `PATCH /api/v1/users/:id` (es. `{active:false}` = sospensione reversibile, mantiene nome/email)
+- `DELETE /api/v1/users/:id` (24/08) → **anonimizzazione GDPR**, non soft-delete: nome/email/reparto sostituiti in modo irreversibile (`name:'Utente rimosso'`, email sintetica `deleted-<id>@anonimizzato.workflow360.local`), password invalidata, refresh token revocati, riga e ruolo mantenuti (le ore lavorate restano collegate a `userId` per gli obblighi contabili). Voce di audit (`DELETE`/`users`) senza i vecchi dati personali. 409 se già anonimizzato. Guardie condivise con `PATCH active:false` (`assertCanRemoveAdminAccess` in `users.service.ts`): mai su se stessi, mai l'ultimo admin attivo dell'azienda.
 
 ### Companies
 - `GET /api/v1/companies` → elenco aziende (catalogo globale)

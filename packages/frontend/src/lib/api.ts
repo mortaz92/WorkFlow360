@@ -149,6 +149,11 @@ export const api = {
     request<{ user: import('./types').UserSummary }>('/users', { method: 'POST', body }),
   updateUser: (id: string, body: { email?: string; name?: string; role?: string; active?: boolean }) =>
     request<{ user: import('./types').UserSummary }>(`/users/${id}`, { method: 'PATCH', body }),
+  // Non è una semplice disattivazione: il backend anonimizza nome ed email (diritto
+  // alla cancellazione GDPR), operazione irreversibile — a differenza di updateUser
+  // con active:false, che resta reversibile e usata per le sospensioni temporanee.
+  deleteUser: (id: string) =>
+    request<{ user: import('./types').UserSummary }>(`/users/${id}`, { method: 'DELETE' }),
 
   // Default 20 lato server: l'operaio deve poter vedere abbastanza storia per il
   // riepilogo "ultimi 7 giorni" (OperaioPage), non solo le ultimissime righe.

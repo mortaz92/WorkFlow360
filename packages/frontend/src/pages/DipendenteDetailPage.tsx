@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api, getCurrentUser } from '../lib/api';
 import type { TimeLogTipo, UserRole, UserSummary, UserTimeLogDetail } from '../lib/types';
 import { ArrowLeftIcon, ClockIcon, MailIcon, UsersIcon } from '../components/icons';
@@ -293,6 +293,7 @@ export default function DipendenteDetailPage() {
 // disciplina "risincronizza sempre all'apertura/annullamento" già vista in questo
 // progetto per TaskRow e ProjectEditForm: evita che "Annulla" non annulli davvero.
 function UserEditForm({ user, onSaved }: { user: UserSummary; onSaved: () => void }) {
+  const navigate = useNavigate();
   const [editing, setEditing] = useState(false);
   const [email, setEmail] = useState(user.email);
   const [name, setName] = useState(user.name);
@@ -320,6 +321,28 @@ function UserEditForm({ user, onSaved }: { user: UserSummary; onSaved: () => voi
     } catch (err) {
       setError(err instanceof Error ? err.message : "Errore nell'aggiornamento del dipendente");
     } finally {
+      setBusy(false);
+    }
+  }
+
+  // Distinta da "Attivo" sopra: quella sospende l'accesso mantenendo nome/email
+  // (reversibile, es. aspettativa). Questa cancella davvero i dati personali
+  // (anonimizzazione lato server) — non c'è modo di tornare indietro.
+  async function removeForever() {
+    const sure = confirm(
+      `Rimuovere definitivamente ${user.name}?\n\n` +
+        "Nome ed email verranno cancellati e sostituiti in modo permanente (l'account " +
+        'diventerà "Utente rimosso"). Le ore già registrate restano nello storico in forma ' +
+        'anonima, per gli obblighi contabili. Questa azione non si può annullare.',
+    );
+    if (!sure) return;
+    setError(null);
+    setBusy(true);
+    try {
+      await api.deleteUser(user.id);
+      navigate('/dipendenti', { replace: true });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Errore nella rimozione del dipendente');
       setBusy(false);
     }
   }
@@ -365,12 +388,17 @@ function UserEditForm({ user, onSaved }: { user: UserSummary; onSaved: () => voi
         />
         <span className="text-sm text-surface-600 dark:text-surface-400">Attivo</span>
       </label>
-      <div className="flex gap-2">
-        <Button type="button" variant="primary" loading={busy} onClick={save}>
-          Salva
-        </Button>
-        <Button type="button" variant="ghost" disabled={busy} onClick={() => syncAndToggle(false)}>
-          Annulla
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex gap-2">
+          <Button type="button" variant="primary" loading={busy} onClick={save}>
+            Salva
+          </Button>
+          <Button type="button" variant="ghost" disabled={busy} onClick={() => syncAndToggle(false)}>
+            Annulla
+          </Button>
+        </div>
+        <Button type="button" variant="danger" size="sm" disabled={busy} onClick={removeForever}>
+          Rimuovi definitivamente
         </Button>
       </div>
     </div>

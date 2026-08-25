@@ -13,6 +13,8 @@ import DipendenteDetailPage from './pages/DipendenteDetailPage';
 import OperaioPage from './pages/OperaioPage';
 import ReportPage from './pages/ReportPage';
 import ArchivioPage from './pages/ArchivioPage';
+import PrivacyPage from './pages/PrivacyPage';
+import TermsPage from './pages/TermsPage';
 
 function RequireAuth({ children }: { children: JSX.Element }) {
   const token = getToken();
@@ -25,7 +27,7 @@ function RequireAuth({ children }: { children: JSX.Element }) {
 // sotto sbatterebbe l'utente su /login PRIMA che la pagina possa leggere quel token,
 // perdendolo (trappola trovata in FASE 2 di questo round, mai riprodotta prima perché
 // nessuna pagina pubblica oltre /login era mai esistita).
-const PUBLIC_PATHS = ['/login', '/forgot-password', '/reset-password'];
+const PUBLIC_PATHS = ['/login', '/forgot-password', '/reset-password', '/privacy', '/termini'];
 
 export default function App() {
   // Stato minimo: qui teniamo solo il routing. L'utente loggato viene letto
@@ -43,6 +45,8 @@ export default function App() {
       <Route path="/login" element={<LoginPage />} />
       <Route path="/forgot-password" element={<ForgotPasswordPage />} />
       <Route path="/reset-password" element={<ResetPasswordPage />} />
+      <Route path="/privacy" element={<PrivacyPage />} />
+      <Route path="/termini" element={<TermsPage />} />
       {/* Dashboard e Report condividono la sidebar (AppLayout). L'Operaio resta fuori:
           è mobile-first e non deve portare in giro una sidebar pensata per desktop. */}
       <Route

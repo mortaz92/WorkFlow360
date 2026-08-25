@@ -136,9 +136,14 @@ export default function LoginPage() {
           </form>
         </CardContent>
 
-        <CardFooter className="pt-4 border-t border-surface-200 dark:border-surface-700">
+        <CardFooter className="pt-4 border-t border-surface-200 dark:border-surface-700 flex-col gap-2">
           <p className="text-center text-sm text-surface-500 dark:text-surface-400">
             © 2026 WorkFlow360. Tutti i diritti riservati.
+          </p>
+          <p className="text-center text-xs text-surface-400 dark:text-surface-500">
+            <Link to="/privacy" className="hover:text-primary-600 dark:hover:text-primary-400">Privacy</Link>
+            {' · '}
+            <Link to="/termini" className="hover:text-primary-600 dark:hover:text-primary-400">Termini di servizio</Link>
           </p>
         </CardFooter>
       </Card>

@@ -4,10 +4,10 @@ import bcrypt from 'bcrypt';
 import { and, eq, inArray } from 'drizzle-orm';
 import { createApp } from '../../app';
 import { db } from '../../core/db';
-import { users, companies } from '../../core/db/schema';
+import { users, companies, auditLog, refreshTokens } from '../../core/db/schema';
 import { ForbiddenError } from '../../core/errors';
 import { signAccessToken } from '../auth/auth.service';
-import { updateUser } from './users.service';
+import { anonymizeUser, updateUser } from './users.service';
 
 const app = createApp();
 
@@ -58,6 +58,13 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  // Prima le voci di audit: DELETE /users/:id (anonimizzazione) ne scrive una per ogni
+  // utente rimosso, e audit_log.company_id ha un vincolo RESTRICT verso companies —
+  // senza questa riga il DELETE della company qui sotto fallirebbe, facendo fallire
+  // l'intero file per un problema di pulizia e non di codice.
+  if (createdCompanyIds.length > 0) {
+    await db.delete(auditLog).where(inArray(auditLog.companyId, createdCompanyIds));
+  }
   const ids = [adminOneId, adminTwoId, resourceId, ...createdUserIds].filter(Boolean);
   if (ids.length > 0) {
     await db.delete(users).where(inArray(users.id, ids));
@@ -402,22 +409,197 @@ describe('POST /api/v1/users — limite 3 utenti per azienda', () => {
   });
 });
 
-describe('DELETE /api/v1/users/:id (soft-delete)', () => {
-  it("disattiva l'utente e un login successivo con quell'account fallisce", async () => {
-    const targetPasswordHash = await bcrypt.hash('DaDisattivare123!', BCRYPT_TEST_COST);
-    const [target] = await db
-      .insert(users)
-      .values({ email: 'da-disattivare@workflow360.local', passwordHash: targetPasswordHash, name: 'Da Disattivare', role: 'operaio', companyId })
-      .returning();
-    createdUserIds.push(target.id);
+// DELETE /:id non è più un soft-delete (era `active:false` e basta): oggi anonimizza
+// davvero i dati personali — diritto alla cancellazione GDPR. La riga utente resta, perché
+// le ore lavorate ci sono collegate via userId e vanno conservate per la contabilità.
+// La sospensione reversibile è rimasta un'operazione distinta: PATCH /:id con
+// `{active:false}`, che NON tocca nome ed email (coperta dai describe più sopra).
+describe('DELETE /api/v1/users/:id (anonimizzazione)', () => {
+  const SUFFISSO_ANONIMO = '@anonimizzato.workflow360.local';
 
-    const res = await request(app).delete(`/api/v1/users/${target.id}`).set('Authorization', `Bearer ${adminOneToken}`);
+  // Azienda dedicata con UN SOLO admin attivo: serve al caso "ultimo admin", che
+  // nell'azienda principale del file non è costruibile (lì adminOne e adminTwo sono
+  // entrambi attivi, come richiedono gli altri test).
+  let gdprCompanyId: string;
+  let soloAdminId: string;
+
+  beforeAll(async () => {
+    const passwordHash = await bcrypt.hash('TestPassword123!', BCRYPT_TEST_COST);
+    const [company] = await db.insert(companies).values({ name: 'GdprTestCo' }).returning();
+    gdprCompanyId = company.id;
+    const [soloAdmin] = await db
+      .insert(users)
+      .values({ email: 'gdpr-solo-admin@workflow360.local', passwordHash, name: 'Solo Admin', role: 'admin', companyId: gdprCompanyId })
+      .returning();
+    soloAdminId = soloAdmin.id;
+  });
+
+  afterAll(async () => {
+    await db.delete(auditLog).where(eq(auditLog.companyId, gdprCompanyId)).catch(() => {});
+    await db.delete(users).where(eq(users.companyId, gdprCompanyId)).catch(() => {});
+    await db.delete(companies).where(eq(companies.id, gdprCompanyId)).catch(() => {});
+  });
+
+  // Ogni test si crea il proprio bersaglio: l'anonimizzazione è irreversibile, riusarne
+  // uno tra test diversi li renderebbe dipendenti dall'ordine di esecuzione.
+  async function creaDipendente(email: string, password: string, department: string | null = null): Promise<string> {
+    const passwordHash = await bcrypt.hash(password, BCRYPT_TEST_COST);
+    const [row] = await db
+      .insert(users)
+      .values({ email, passwordHash, name: 'Mario Rossi', role: 'operaio', companyId, department })
+      .returning();
+    createdUserIds.push(row.id);
+    return row.id;
+  }
+
+  it('sostituisce nome ed email nella risposta e disattiva l\'account', async () => {
+    const id = await creaDipendente('gdpr-base@workflow360.local', 'DaRimuovere123!');
+
+    const res = await request(app).delete(`/api/v1/users/${id}`).set('Authorization', `Bearer ${adminOneToken}`);
     expect(res.status).toBe(200);
+    expect(res.body.user.name).toBe('Utente rimosso');
+    expect(res.body.user.email.endsWith(SUFFISSO_ANONIMO)).toBe(true);
     expect(res.body.user.active).toBe(false);
+    // La riga deve restare: è ciò che tiene in piedi le ore lavorate collegate a userId.
+    expect(res.body.user.id).toBe(id);
+    expect(res.body.user.passwordHash).toBeUndefined();
+  });
+
+  it('cancella davvero i dati personali sul DB (reparto azzerato, password non più valida)', async () => {
+    const id = await creaDipendente('gdpr-db@workflow360.local', 'DaRimuovere123!', 'Cantiere Nord');
+    const [prima] = await db.select().from(users).where(eq(users.id, id)).limit(1);
+
+    const res = await request(app).delete(`/api/v1/users/${id}`).set('Authorization', `Bearer ${adminOneToken}`);
+    expect(res.status).toBe(200);
+
+    // Verifica sul DB, non sulla risposta HTTP: è il database che non deve più contenere
+    // i dati personali, la risposta potrebbe mostrare valori ripuliti su una riga intatta.
+    const [dopo] = await db.select().from(users).where(eq(users.id, id)).limit(1);
+    expect(dopo.department).toBeNull();
+    expect(dopo.name).toBe('Utente rimosso');
+    expect(dopo.email).not.toBe('gdpr-db@workflow360.local');
+    expect(dopo.email.endsWith(SUFFISSO_ANONIMO)).toBe(true);
+    expect(dopo.active).toBe(false);
+    // Confronto diretto degli hash: un tentativo di login fallirebbe comunque per
+    // `active:false` (vedi verifyCredentials), quindi un 401 NON proverebbe che la
+    // vecchia password è stata sostituita — solo che l'account è spento.
+    expect(dopo.passwordHash).not.toBe(prima.passwordHash);
+    // Il ruolo resta: serve alle statistiche aggregate e da solo non identifica nessuno.
+    expect(dopo.role).toBe('operaio');
+  });
+
+  it("un login con l'account rimosso fallisce (caso già coperto quando era un soft-delete)", async () => {
+    const id = await creaDipendente('da-disattivare@workflow360.local', 'DaDisattivare123!');
+
+    const res = await request(app).delete(`/api/v1/users/${id}`).set('Authorization', `Bearer ${adminOneToken}`);
+    expect(res.status).toBe(200);
 
     const loginRes = await request(app)
       .post('/api/v1/auth/login')
       .send({ email: 'da-disattivare@workflow360.local', password: 'DaDisattivare123!' });
     expect(loginRes.status).toBe(401);
+  });
+
+  it('un admin non può anonimizzare se stesso', async () => {
+    // Precondizione esplicita: adminTwo è attivo, quindi adminOne NON è l'ultimo admin —
+    // senza questa verifica un 403 potrebbe arrivare dalla guardia sbagliata (ultimo
+    // admin) e il test passerebbe per il motivo sbagliato.
+    const [altro] = await db.select({ active: users.active }).from(users).where(eq(users.id, adminTwoId)).limit(1);
+    expect(altro.active).toBe(true);
+
+    const res = await request(app).delete(`/api/v1/users/${adminOneId}`).set('Authorization', `Bearer ${adminOneToken}`);
+    expect(res.status).toBe(403);
+
+    const [row] = await db.select().from(users).where(eq(users.id, adminOneId)).limit(1);
+    expect(row.email).toBe(ADMIN_ONE_EMAIL);
+    expect(row.active).toBe(true);
+  });
+
+  // Stesso invariante già coperto per la disattivazione/retrocessione (describe "Guardia
+  // ultimo admin attivo"), verificato qui sul secondo percorso che può azzerare gli admin
+  // di un'azienda. A livello di servizio per lo stesso motivo spiegato lì: con una
+  // richiesta HTTP genuina attore e bersaglio distinti implicano già 2 admin attivi.
+  it("non permette di anonimizzare l'ultimo admin attivo dell'azienda", async () => {
+    await expect(
+      anonymizeUser(soloAdminId, {
+        id: 'attore-esterno-simulato',
+        email: 'x@x.local',
+        role: 'admin',
+        companyId: gdprCompanyId,
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenError);
+
+    const [row] = await db.select().from(users).where(eq(users.id, soloAdminId)).limit(1);
+    expect(row.email).toBe('gdpr-solo-admin@workflow360.local');
+    expect(row.name).toBe('Solo Admin');
+    expect(row.active).toBe(true);
+  });
+
+  it('una seconda DELETE sullo stesso utente risponde 409, non un 200 silenzioso', async () => {
+    const id = await creaDipendente('gdpr-due-volte@workflow360.local', 'DaRimuovere123!');
+
+    const prima = await request(app).delete(`/api/v1/users/${id}`).set('Authorization', `Bearer ${adminOneToken}`);
+    expect(prima.status).toBe(200);
+    const emailAnonima = prima.body.user.email;
+
+    const seconda = await request(app).delete(`/api/v1/users/${id}`).set('Authorization', `Bearer ${adminOneToken}`);
+    expect(seconda.status).toBe(409);
+    expect(seconda.body.error.code).toBe('CONFLICT');
+
+    // L'email sintetica non è stata riscritta da un secondo giro.
+    const [row] = await db.select({ email: users.email }).from(users).where(eq(users.id, id)).limit(1);
+    expect(row.email).toBe(emailAnonima);
+  });
+
+  it("revoca i refresh token: una sessione aperta dell'utente non si rinnova più", async () => {
+    const email = 'gdpr-sessione@workflow360.local';
+    const password = 'SessioneAperta123!';
+    const id = await creaDipendente(email, password);
+
+    const login = await request(app).post('/api/v1/auth/login').send({ email, password });
+    expect(login.status).toBe(200);
+    // @types/superagent tipizza gli header come Record<string, string>, ma per
+    // "set-cookie" il valore reale a runtime è sempre un array (stesso cast in auth.test.ts).
+    const cookie = (login.headers['set-cookie'] as unknown as string[])[0];
+
+    const del = await request(app).delete(`/api/v1/users/${id}`).set('Authorization', `Bearer ${adminOneToken}`);
+    expect(del.status).toBe(200);
+
+    const refresh = await request(app).post('/api/v1/auth/refresh').set('Cookie', cookie);
+    expect(refresh.status).toBe(401);
+
+    // Il 401 qui sopra da solo NON prova la revoca: rotateRefreshToken rifiuta comunque un
+    // utente non attivo, e l'anonimizzazione disattiva sempre — lo stesso 401 arriverebbe
+    // anche senza revocare nulla. La prova che i token siano stati davvero revocati (e non
+    // solo resi inutili finché l'utente è spento) sta nella colonna revoked_at.
+    const righe = await db
+      .select({ revokedAt: refreshTokens.revokedAt })
+      .from(refreshTokens)
+      .where(eq(refreshTokens.userId, id));
+    expect(righe.length).toBeGreaterThan(0);
+    expect(righe.every((r) => r.revokedAt !== null)).toBe(true);
+  });
+
+  it("lascia una voce di audit che NON contiene il vecchio nome né la vecchia email", async () => {
+    const email = 'gdpr-audit@workflow360.local';
+    const id = await creaDipendente(email, 'DaRimuovere123!', 'Ufficio Tecnico');
+
+    const res = await request(app).delete(`/api/v1/users/${id}`).set('Authorization', `Bearer ${adminOneToken}`);
+    expect(res.status).toBe(200);
+
+    const righe = await db
+      .select()
+      .from(auditLog)
+      .where(and(eq(auditLog.companyId, companyId), eq(auditLog.entityId, id), eq(auditLog.action, 'DELETE')));
+    expect(righe.length).toBe(1);
+    expect(righe[0].entityType).toBe('users');
+    expect(righe[0].userId).toBe(adminOneId);
+
+    // Il punto dell'anonimizzazione è che quei dati non esistano più DA NESSUNA PARTE:
+    // un audit log che li conserva sposta il problema di tabella invece di risolverlo.
+    const tracciato = JSON.stringify(righe[0].changesJson);
+    expect(tracciato).not.toContain(email);
+    expect(tracciato).not.toContain('Mario Rossi');
+    expect(tracciato).not.toContain('Ufficio Tecnico');
   });
 });

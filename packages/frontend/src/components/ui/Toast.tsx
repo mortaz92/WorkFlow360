@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import React, { useEffect, useState, type ReactNode } from 'react';
 import { XIcon } from '../icons';
 
 export type ToastType = 'success' | 'error' | 'warning' | 'info' | 'default';
@@ -139,5 +139,4 @@ export function useToastHelpers() {
   };
 }
 
-import React from 'react';
 export default ToastProvider;

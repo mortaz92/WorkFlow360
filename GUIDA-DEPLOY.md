@@ -40,6 +40,50 @@ Tieni aperto un blocco note: durante la guida dovrai copiare due indirizzi web
 >
 > Se i dati contano davvero, passa al piano a pagamento: costa poco e include i backup.
 
+### Come rendere il backup davvero automatico
+
+Il comando `pg_dump` qui sopra funziona, ma va lanciato a mano ogni volta: se te ne
+dimentichi una settimana, quella settimana di dati non è recuperabile in caso di
+problemi. Due modi per non doverci pensare più:
+
+**Opzione 1 — piano a pagamento su Render (consigliata se i dati sono già reali).**
+I piani Postgres a pagamento di Render includono backup automatici gestiti da loro,
+con possibilità di ripristino a un punto preciso nel tempo (point-in-time recovery).
+Passi: dashboard Render → il tuo database → **Settings** → **Plan**, scegli un piano
+a pagamento. Il prezzo esatto va verificato sulla pagina Pricing di Render il giorno
+in cui lo attivi (cambia nel tempo) — non è gratis, ma è la strada più affidabile:
+una volta attivato non devi più ricordarti di nulla.
+
+**Opzione 2 — backup automatico gratuito, schedulato sul tuo PC.** Se vuoi restare
+sul piano gratuito ancora per un po', puoi far ripetere da solo il comando `pg_dump`
+di sopra ogni settimana con l'Utilità di pianificazione di Windows (Task Scheduler),
+senza bisogno di scrivere nulla nel progetto:
+
+1. Apri **Utilità di pianificazione** (cerca "Task Scheduler" nel menu Start).
+2. **Crea attività di base** → dai un nome, es. "Backup WorkFlow360".
+3. **Trigger**: Settimanale, scegli un giorno e un orario in cui il PC è di solito acceso.
+4. **Azione**: "Avvia un programma". Come programma inserisci `pg_dump`, come argomenti
+   incolla l'External Database URL (Passo 7 di questa guida) tra virgolette e, dopo,
+   il percorso del file di output con la data, per esempio:
+   ```
+   "URL_DATABASE" -f "C:\Backup\workflow360-%date:~-4,4%%date:~-7,2%%date:~-4,2%.sql"
+   ```
+   (più semplice: salva invece un piccolo file `.bat` con dentro il comando pg_dump
+   completo, e in "Azione" fai eseguire quel file `.bat` — più facile da testare a mano
+   prima di schedularlo).
+5. Scegli una cartella di destinazione **fuori dal PC stesso**, se possibile (una
+   cartella sincronizzata su OneDrive/Google Drive va bene): un backup salvato solo
+   sullo stesso computer non protegge da un guasto del computer.
+6. Testa subito l'attività appena creata con tasto destro → **Esegui**, e controlla
+   che il file di backup compaia davvero nella cartella scelta prima di fidarti dello
+   schedulatore.
+
+Richiede che `pg_dump` sia installato sul PC (fa parte di PostgreSQL — se hai seguito
+questa guida con Docker Desktop, è già presente nell'immagine Postgres locale, ma per
+Task Scheduler serve una copia installata direttamente su Windows, non dentro Docker:
+scaricabile da [postgresql.org/download/windows](https://www.postgresql.org/download/windows/),
+basta installare "Command Line Tools" senza il server completo).
+
 ---
 
 ## Prima scelta: due strade per creare i servizi

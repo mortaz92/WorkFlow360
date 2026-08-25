@@ -4,7 +4,7 @@ import { userRoleEnum } from '../../core/db/schema';
 import { ValidationError } from '../../core/errors';
 import { emailSchema } from '../../core/validation';
 import { requireAuth, requireRole } from '../auth/auth.middleware';
-import { createUser, getUserById, listUsers, updateUser } from './users.service';
+import { anonymizeUser, createUser, getUserById, listUsers, updateUser } from './users.service';
 
 const createUserSchema = z.object({
   email: emailSchema,
@@ -120,6 +120,11 @@ usersRouter.patch('/:id', async (req, res, next) => {
   }
 });
 
+// Cancellazione dei dati personali (GDPR), non una semplice disattivazione: nome, email
+// e reparto vengono sostituiti in modo irreversibile, la riga utente resta perché le ore
+// lavorate ci sono collegate (vedi anonymizeUser in users.service.ts). La sospensione
+// reversibile — dipendente in aspettativa, si riattiva dopo mantenendo nome ed email —
+// è un'operazione diversa e resta su PATCH /:id con `{ active: false }`.
 usersRouter.delete('/:id', async (req, res, next) => {
   try {
     const id = parseUserId(req.params.id);
@@ -127,7 +132,7 @@ usersRouter.delete('/:id', async (req, res, next) => {
       throw new Error('req.user non popolato: middleware di autenticazione non applicato');
     }
 
-    const user = await updateUser(id, { active: false }, req.user);
+    const user = await anonymizeUser(id, req.user);
     res.json({ user });
   } catch (err) {
     next(err);
