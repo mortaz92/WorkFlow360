@@ -88,7 +88,7 @@ export default function ResetPasswordPage() {
                   <button
                     type="button"
                     onClick={() => setShowPassword((v) => !v)}
-                    className="text-surface-400 hover:text-surface-600 dark:text-surface-500 dark:hover:text-surface-300"
+                    className="pointer-events-auto text-surface-400 hover:text-surface-600 dark:text-surface-500 dark:hover:text-surface-300"
                     aria-label={showPassword ? 'Nascondi password' : 'Mostra password'}
                   >
                     {showPassword ? (
