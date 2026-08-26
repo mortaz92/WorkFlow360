@@ -78,6 +78,20 @@
       "when": 1787317515477,
       "tag": "0010_normalize_user_emails",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1787723192269,
+      "tag": "0011_lovely_liz_osborn",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1787723192270,
+      "tag": "0012_rapportino_partial_unique",
+      "breakpoints": true
     }
   ]
 }

@@ -18,6 +18,7 @@ import { correctionsRouter } from './modules/corrections/corrections.routes';
 import { auditLogRouter } from './modules/auditLog/auditLog.routes';
 import { companiesRouter } from './modules/companies/companies.routes';
 import { reportsRouter } from './modules/reports/reports.routes';
+import { rapportiniRouter } from './modules/rapportini/rapportini.routes';
 
 // Il middleware cors() qui sotto chiude già ogni richiesta OPTIONS con 204 prima che
 // raggiunga express.json()/i router (vedi sorgente di `cors`, che risponde e non chiama
@@ -63,6 +64,18 @@ const forgotPasswordRateLimiter = createRateLimiter(5, 'Troppe richieste di recu
 // (arrivato via email): il limite protegge dal brute-force sul token, non dallo spam.
 const resetPasswordRateLimiter = createRateLimiter(10, 'Troppi tentativi. Riprova più tardi.');
 
+// Firma pubblica del rapportino: stessa natura del reset-password (chi chiama possiede
+// già un token valido, il limite protegge dal brute-force sul token, non dallo spam) ma
+// più permissivo, 20 invece di 10. In cantiere l'intera squadra è dietro un solo IP —
+// hotspot del capocantiere o NAT del cliente — e un limite stretto bloccherebbe le firme
+// legittime dei colleghi invece di un attaccante.
+const firmaRapportinoRateLimiter = createRateLimiter(20, 'Troppi tentativi di firma. Riprova più tardi.');
+
+// Il PNG di una firma tracciata su un tablet può superare i 100KB che express.json()
+// accetta di default, e un corpo rifiutato per dimensione arriverebbe come 413 proprio
+// mentre il cliente sta firmando. Il limite più alto vale SOLO per questa rotta.
+const FIRMA_BODY_LIMIT = '1mb';
+
 // Più stretto del limite generico: la gestione utenti è riservata agli admin e non
 // dovrebbe generare traffico paragonabile al resto dell'API — un limite più basso
 // rende più costosa un'enumerazione degli utenti (via GET /:id) da un admin
@@ -104,6 +117,12 @@ export function createApp(): Express {
       maxAge: 86400,
     }),
   );
+  // PRIMA di express.json() globale, e non è indifferente: body-parser marca la
+  // richiesta con req._body appena l'ha letta, e ogni parser successivo la salta senza
+  // rileggerla. Se il parser globale (limite 100KB) girasse per primo, una firma da
+  // 300KB verrebbe rifiutata con 413 prima ancora di arrivare al parser da 1MB, che non
+  // avrebbe mai occasione di parlare. L'ordine QUI è il meccanismo, non uno stile.
+  app.use('/api/v1/rapportini/firma', express.json({ limit: FIRMA_BODY_LIMIT }));
   app.use(express.json());
   app.use(cookieParser());
   app.use(requestLogger);
@@ -134,6 +153,8 @@ export function createApp(): Express {
   app.use('/api/v1/audit-logs', auditLogRouter);
   app.use('/api/v1/companies', companiesRouter);
   app.use('/api/v1/reports', reportsRouter);
+  app.use('/api/v1/rapportini/firma', firmaRapportinoRateLimiter);
+  app.use('/api/v1/rapportini', rapportiniRouter);
 
   app.use(notFoundHandler);
   app.use(errorHandler);

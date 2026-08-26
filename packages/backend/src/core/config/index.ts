@@ -1,6 +1,7 @@
 import path from 'node:path';
 import fs from 'node:fs';
 import dotenv from 'dotenv';
+import ms from 'ms';
 import { z } from 'zod';
 import { looksLikePlaceholder } from '../constants';
 
@@ -15,6 +16,18 @@ if (fs.existsSync(envPath)) {
   dotenv.config({ path: envPath });
 } else {
   console.warn(`[CONFIG] File .env non trovato in ${envPath}: leggo le variabili già presenti nell'ambiente.`);
+}
+
+// Una durata scritta a mano in .env ("15m", "1h") viene consumata da ms(): se non la
+// riconosce, ms() restituisce undefined e il risultato prosegue silenziosamente come
+// `new Date(NaN)`, cioè un token già scaduto o mai scaduto a seconda del confronto. Un
+// refuso come "15 minuti" non deve arrivare fino alla prima richiesta reale sotto forma
+// di comportamento assurdo: deve fermare l'avvio, come ogni altra variabile non valida.
+function durataValida(schema: z.ZodDefault<z.ZodString>) {
+  return schema.refine((valore) => {
+    const millisecondi = ms(valore);
+    return typeof millisecondi === 'number' && Number.isFinite(millisecondi) && millisecondi > 0;
+  }, 'deve essere una durata valida nel formato accettato da ms() (es. "15m", "2h", "7d")');
 }
 
 const envSchema = z.object({
@@ -43,6 +56,12 @@ const envSchema = z.object({
   // arrivare all'utente un link verso un dominio altrui con dentro un token valido).
   APP_BASE_URL: z.string().default('http://localhost:5173'),
   PASSWORD_RESET_EXPIRES_IN: z.string().default('1h'),
+  // Validità del link di firma del rapportino. Molto più corta di quella del reset
+  // password (1h) e non per simmetria mancata: il cliente firma di persona, sul
+  // dispositivo dell'operaio che ha davanti, entro pochi minuti dalla creazione — una
+  // finestra lunga servirebbe solo a lasciare in giro un link capace di far firmare
+  // ore a chi lo intercetta.
+  RAPPORTINO_SIGN_EXPIRES_IN: durataValida(z.string().default('15m')),
 });
 
 // Un placeholder di .env.example può essere lungo abbastanza da superare il controllo

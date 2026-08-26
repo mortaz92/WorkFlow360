@@ -2,6 +2,7 @@ import { pgTable, uuid, numeric, date, time, text, timestamp, pgEnum, index } fr
 import { tasks } from './tasks';
 import { users } from './users';
 import { companies } from './companies';
+import { rapportini } from './rapportini';
 
 export const timeLogTypeEnum = pgEnum('time_log_type', [
   'ordinario',
@@ -48,11 +49,23 @@ export const timeLogs = pgTable(
     // Indipendente da contratto/consuntivo: l'operaio la compila sempre.
     workDescription: text('work_description'),
     notes: text('notes'),
+    // Rapportino a cui questa riga è stata allegata (NULL = ora libera, il caso normale).
+    // Vale come LUCCHETTO: finché il rapportino è 'in_firma' o 'firmato', updateTimeLog
+    // e deleteTimeLog rifiutano la modifica (409) — le ore non devono poter divergere in
+    // silenzio da quelle che il cliente ha visto e sottoscritto. Lo snapshot congelato
+    // sul rapportino non basta da solo: senza il lucchetto, snapshot e realtà si
+    // separerebbero e il documento firmato risulterebbe smentito dal database.
+    // set null (non cascade/restrict): se un rapportino venisse mai eliminato, le ore
+    // restano e tornano semplicemente libere.
+    rapportinoId: uuid('rapportino_id').references(() => rapportini.id, { onDelete: 'set null' }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
     taskIdIdx: index('time_logs_task_id_idx').on(table.taskId),
     userIdIdx: index('time_logs_user_id_idx').on(table.userId),
     companyIdIdx: index('time_logs_company_id_idx').on(table.companyId),
+    // Ogni annullamento/sblocco di un rapportino azzera questa colonna su tutte le sue
+    // righe: senza indice sarebbe una scansione completa di time_logs ogni volta.
+    rapportinoIdIdx: index('time_logs_rapportino_id_idx').on(table.rapportinoId),
   }),
 );

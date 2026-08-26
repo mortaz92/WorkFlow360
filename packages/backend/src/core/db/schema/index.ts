@@ -8,3 +8,4 @@ export * from './auditLog';
 export * from './companies';
 export * from './refreshTokens';
 export * from './passwordResetTokens';
+export * from './rapportini';

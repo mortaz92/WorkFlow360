@@ -4,6 +4,7 @@ import { projects, tasks, timeLogs, timeLogMaterials, users } from '../../core/d
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../../core/errors';
 import { isManager } from '../../core/roles';
 import { recordAudit } from '../auditLog/auditLog.service';
+import { assertOreNonBloccateDaRapportino } from '../rapportini/rapportini.service';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import type {
   CreateMaterialInput,
@@ -389,6 +390,14 @@ export async function updateTimeLog(
       throw new ForbiddenError('Puoi modificare solo le tue ore');
     }
 
+    // Ore già allegate a un rapportino in firma o firmato: non si toccano. Lo snapshot
+    // congelato conserva ciò che il cliente ha visto, ma senza questo blocco le ore vere
+    // potrebbero cambiare sotto quel documento e il firmato risulterebbe smentito dal
+    // database. Dentro la transazione e DOPO il FOR UPDATE qui sopra: leggerlo prima
+    // lascerebbe aperta la finestra in cui un rapportino viene creato tra il controllo e
+    // la scrittura. Vale anche per un admin — per lui esiste POST /rapportini/:id/sblocca.
+    await assertOreNonBloccateDaRapportino(tx, existing.rapportinoId, companyId);
+
     const patch: Record<string, unknown> = {};
     if (input.tipo !== undefined) patch.tipo = input.tipo;
     if (input.hoursWorked !== undefined) {
@@ -563,6 +572,10 @@ export async function deleteTimeLog(id: string, companyId: string, actingUser: A
     if (!isManager(actingUser.role) && existing.userId !== actingUser.id) {
       throw new ForbiddenError('Puoi eliminare solo le tue ore');
     }
+    // Stesso lucchetto di updateTimeLog, e a maggior ragione: cancellare una riga
+    // allegata a un rapportino firmato farebbe sparire dal database un'ora che il
+    // cliente ha sottoscritto (vedi assertOreNonBloccateDaRapportino).
+    await assertOreNonBloccateDaRapportino(tx, existing.rapportinoId, companyId);
     // CASCADE rimuove anche i time_log_materials figli.
     await tx.delete(timeLogs).where(and(eq(timeLogs.id, id), eq(timeLogs.companyId, companyId)));
 

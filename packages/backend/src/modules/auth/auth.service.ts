@@ -1,4 +1,3 @@
-import crypto from 'node:crypto';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import ms from 'ms';
@@ -8,7 +7,9 @@ import { db } from '../../core/db';
 import { users, refreshTokens, passwordResetTokens, userRoleEnum } from '../../core/db/schema';
 import { CONFIG } from '../../core/config';
 import { BCRYPT_COST } from '../../core/constants';
+import { escapeHtml } from '../../core/escapeHtml';
 import { sendEmail } from '../../core/mail';
+import { generateOpaqueToken, hashOpaqueToken } from '../../core/tokens';
 import { UnauthorizedError } from '../../core/errors';
 import type { AccessTokenPayload, AuthenticatedUser } from './auth.types';
 
@@ -23,16 +24,15 @@ const dummyPasswordHash = bcrypt.hashSync('nessuna-password-corrisponde-a-questo
 // Il refresh token è un valore casuale opaco, non un JWT: la revoca (logout,
 // rotazione) deve poter invalidare un token istantaneamente lato server, cosa
 // che un JWT autocontenuto non permette senza un registro di revoca comunque.
-// Si salva solo l'hash: il token ha 384 bit di entropia casuale (non è una
-// password scelta da un umano), quindi un brute-force è già impossibile a
-// prescindere dalla velocità dell'hash — SHA-256 basta, bcrypt rallenterebbe
-// solo le query legittime senza aggiungere sicurezza reale.
+// La generazione e l'hashing vivono in core/tokens.ts (stessa coppia di funzioni
+// usata dal token di reset password qui sotto e dal token di firma del rapportino):
+// lì c'è anche il motivo per cui basta SHA-256.
 function hashToken(token: string): string {
-  return crypto.createHash('sha256').update(token).digest('hex');
+  return hashOpaqueToken(token);
 }
 
 function generateRefreshTokenValue(): string {
-  return crypto.randomBytes(REFRESH_TOKEN_BYTES).toString('base64url');
+  return generateOpaqueToken(REFRESH_TOKEN_BYTES);
 }
 
 export function signAccessToken(user: AuthenticatedUser): string {
@@ -150,13 +150,18 @@ export async function revokeRefreshToken(tokenValue: string): Promise<void> {
 }
 
 function generatePasswordResetTokenValue(): string {
-  return crypto.randomBytes(PASSWORD_RESET_TOKEN_BYTES).toString('base64url');
+  return generateOpaqueToken(PASSWORD_RESET_TOKEN_BYTES);
 }
 
+// resetUrl è costruito lato server (APP_BASE_URL + token generato da noi), quindi qui
+// l'escape non para un'iniezione realistica: c'è perché ogni valore interpolato in un
+// corpo HTML passa da escapeHtml senza eccezioni "tanto questo è sicuro". La stessa
+// funzione protegge sul serio l'email del rapportino, dove il nome del firmatario arriva
+// da un endpoint pubblico — e una regola applicata a macchia di leopardo si dimentica.
 function passwordResetEmailHtml(resetUrl: string): string {
   return (
     `<p>Hai richiesto di reimpostare la password del tuo account WorkFlow360.</p>` +
-    `<p><a href="${resetUrl}">Clicca qui per scegliere una nuova password</a></p>` +
+    `<p><a href="${escapeHtml(resetUrl)}">Clicca qui per scegliere una nuova password</a></p>` +
     `<p>Il link scade tra un'ora. Se non sei stato tu a richiederlo, ignora pure questa email: la tua password resta invariata.</p>`
   );
 }
@@ -188,6 +193,11 @@ export async function requestPasswordReset(email: string): Promise<void> {
   });
 
   const resetUrl = `${CONFIG.APP_BASE_URL}/reset-password?token=${tokenValue}`;
+  // L'esito dell'invio viene IGNORATO di proposito, anche ora che sendEmail lo
+  // restituisce: reagire a `sent === false` (un errore diverso, un campo in più nella
+  // risposta, perfino un tempo di risposta diverso) reintrodurrebbe esattamente la
+  // distinzione tra "email registrata" ed "email inesistente" che questo flusso
+  // esiste per cancellare. Non è una svista da "sistemare" in un refactor futuro.
   await sendEmail({
     to: user.email,
     subject: 'Reimposta la tua password WorkFlow360',

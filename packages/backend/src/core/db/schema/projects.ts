@@ -31,6 +31,12 @@ export const projects = pgTable(
     // scritto: NULLS DISTINCT (default Postgres) fa sì che più righe NULL convivano
     // sotto lo stesso UNIQUE senza collidere tra loro.
     code: varchar('code', { length: 50 }),
+    // Committente del cantiere. Esisteva da tempo in CLAUDE.md e in scripts/seed-dev.ts
+    // ma NON nello schema: Drizzle scartava il campo in silenzio a ogni insert (vedi il
+    // commento su Project in packages/frontend/src/lib/types.ts, che segnalava proprio
+    // questo buco). Serve per davvero da quando il cliente firma il rapportino: sul
+    // documento deve comparire il nome di chi lo sottoscrive, non solo quello del cantiere.
+    clientName: varchar('client_name', { length: 255 }),
     description: text('description'),
     status: projectStatusEnum('status').notNull().default('pending'),
     // Solo etichetta: contratto (prezzo fisso) vs consuntivo (ore fatte).
