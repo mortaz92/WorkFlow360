@@ -270,6 +270,112 @@ export interface Correction {
   createdAt: string;
 }
 
+// Rapportino firmato dal cliente (cantieri "a consuntivo"). Rispecchia esattamente
+// rapportini.types.ts del backend — i campi Date lato server (createdAt/signedAt/
+// expiresAt/emailSentAt/unlockedAt) arrivano come stringhe ISO su HTTP, stesso
+// trattamento già riservato a TimeLog.createdAt sopra.
+export type RapportinoStatus = 'in_firma' | 'firmato' | 'annullato' | 'scaduto';
+
+export interface SnapshotAzienda {
+  nome: string;
+  vat: string | null;
+  indirizzo: string | null;
+  email: string | null;
+  telefono: string | null;
+}
+
+export interface SnapshotCantiere {
+  id: string;
+  projectNumber: number;
+  code: string | null;
+  nome: string;
+  clientName: string | null;
+  tipoCommessa: string;
+}
+
+export interface SnapshotMateriale {
+  nome: string;
+  quantita: string;
+  unita: string;
+}
+
+export interface SnapshotRiga {
+  timeLogId: string;
+  operaio: { id: string; nome: string };
+  lavoro: { taskId: string; titolo: string };
+  tipo: string;
+  ore: string;
+  oraInizio: string | null;
+  oraFine: string | null;
+  descrizioneLavoro: string | null;
+  note: string | null;
+  materiali: SnapshotMateriale[];
+}
+
+export interface SnapshotTotali {
+  oreTotali: string;
+  /** Ore per tipo (ordinario/straordinario/...), solo i tipi effettivamente presenti. */
+  perTipo: Record<string, string>;
+  materiali: SnapshotMateriale[];
+}
+
+export interface RapportinoSnapshot {
+  versione: number;
+  azienda: SnapshotAzienda;
+  cantiere: SnapshotCantiere;
+  date: string;
+  righe: SnapshotRiga[];
+  totali: SnapshotTotali;
+  preparatoIl: string;
+  preparatoDa: { userId: string; nome: string };
+}
+
+// Riga di elenco: deliberatamente SENZA snapshot né firma (vedi listRapportini nel
+// backend) — usata per l'elenco admin/PM in CantiereDetailPage.
+export interface RapportinoListItem {
+  id: string;
+  projectId: string;
+  date: string;
+  revision: number;
+  status: RapportinoStatus;
+  totalHours: string;
+  createdBy: string;
+  createdAt: string;
+  signerName: string | null;
+  signedAt: string | null;
+  expiresAt: string;
+  emailSentAt: string | null;
+  unlockedAt: string | null;
+}
+
+export interface PaginatedRapportini {
+  rapportini: RapportinoListItem[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+// Dettaglio: include lo snapshot (è il documento) ma MAI il token di firma — quello
+// esiste solo nella risposta di POST /rapportini (vedi CreatedRapportino sotto).
+export interface PublicRapportino extends RapportinoListItem {
+  companyId: string;
+  snapshot: RapportinoSnapshot;
+  snapshotHash: string;
+  signerEmail: string | null;
+  emailLastError: string | null;
+  cancelReason: string | null;
+  unlockedBy: string | null;
+  unlockReason: string | null;
+}
+
+export interface CreatedRapportino {
+  rapportino: PublicRapportino;
+  /** Restituito UNA SOLA VOLTA, alla creazione: in database esiste solo il suo hash —
+   * va passato in memoria (navigate state) alla pagina di firma, mai salvato altrove. */
+  signingToken: string;
+  expiresAt: string;
+}
+
 export interface CreateTimeLogInput {
   taskId: string;
   hoursWorked: string;

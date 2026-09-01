@@ -508,6 +508,29 @@ describe('POST /api/v1/rapportini/firma (rotta pubblica)', () => {
     expect(row.status).toBe('in_firma');
   });
 
+  it('rapportinoId che non combacia con quello risolto dal token -> stesso 401 generico, nessuno dei due firmato', async () => {
+    await inserisciOre('2026-09-23', operaioId, '6');
+    await inserisciOre('2026-09-24', operaioId, '6');
+    const rapA = await creaRapportino(operaioToken, '2026-09-23');
+    const rapB = await creaRapportino(operaioToken, '2026-09-24');
+
+    // Il token è di A, l'id dichiarato è di B: deve fallire come un token invalido, non
+    // come un errore diverso (altrimenti si potrebbe distinguere questo caso da un token
+    // sbagliato, esattamente la fuga di informazione che il messaggio unico evita altrove).
+    const res = await firma(rapA.body.signingToken, { rapportinoId: rapB.body.rapportino.id });
+    expect(res.status).toBe(401);
+    expect(res.body.error.message).toBe('Link non valido o scaduto');
+
+    const a = await leggiRapportino(rapA.body.rapportino.id);
+    const b = await leggiRapportino(rapB.body.rapportino.id);
+    expect(a.status).toBe('in_firma');
+    expect(b.status).toBe('in_firma');
+
+    // Con l'id giusto (quello che un client aggiornato manda davvero) la firma riesce.
+    const ok = await firma(rapA.body.signingToken, { rapportinoId: rapA.body.rapportino.id });
+    expect(ok.status).toBe(200);
+  });
+
   it('firma valida: 200, stato firmato, firma e contesto registrati', async () => {
     const res = await firma(
       signingToken,

@@ -1057,6 +1057,14 @@ export async function signRapportino(
     if (!row || row.status !== 'in_firma' || row.expiresAt < new Date()) {
       throw new UnauthorizedError('Link non valido o scaduto');
     }
+    // Se il chiamante dichiara anche l'id (client aggiornati), deve combaciare con quello
+    // risolto dal token: senza questo controllo, chi conosce due signingToken propri
+    // potrebbe far firmare al cliente l'anteprima di un rapportino (mostrata dall'id
+    // nell'URL) mentre in realtà si consuma il token di un altro — stesso messaggio
+    // generico degli altri rifiuti, per non rivelare quale dei due controlli è fallito.
+    if (input.rapportinoId && input.rapportinoId !== row.id) {
+      throw new UnauthorizedError('Link non valido o scaduto');
+    }
 
     const snapshotFirmato = leggiSnapshot(row);
     // Stesso istante nel PDF e nella colonna signed_at: se fossero due `new Date()`

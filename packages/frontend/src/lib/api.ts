@@ -82,7 +82,11 @@ async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
   if (!res.ok) {
     const message = data?.error?.message ?? `Errore ${res.status}`;
     const code = data?.error?.code;
-    if (res.status === 401) clearToken();
+    // auth:false è solo firmaRapportino (endpoint pubblico, mai col token di sessione di
+    // chi lo chiama): un 401 lì è il cliente che ha usato un link scaduto/non valido, non
+    // ha nulla a che fare con la sessione dell'operaio — cancellarla lo disconnetterebbe
+    // per un errore che non lo riguarda.
+    if (res.status === 401 && opts.auth !== false) clearToken();
     throw new ApiError(message, res.status, code);
   }
   return data as T;
@@ -218,4 +222,84 @@ export const api = {
   // DashboardPage) invece di aggiungere un parametro nuovo all'API per questo soltanto.
   listCorrections: (limit = 100) =>
     request<{ corrections: import('./types').Correction[]; total: number }>(`/corrections?limit=${limit}`),
+
+  // Rapportini firmati dal cliente (cantieri a consuntivo, rapportini.routes.ts). Lettura
+  // aperta a qualunque ruolo autenticato per anteprima/creazione/dettaglio (è l'operaio
+  // stesso a preparare il rapportino sul proprio dispositivo); elenco riservato ad
+  // admin/project_manager, sblocco solo admin — annotato punto per punto sotto.
+  previewRapportino: (projectId: string, date: string) =>
+    request<{ anteprima: import('./types').RapportinoSnapshot }>(
+      `/rapportini/anteprima${buildQuery({ projectId, date })}`,
+    ),
+  createRapportino: (body: { projectId: string; date: string }) =>
+    request<import('./types').CreatedRapportino>('/rapportini', { method: 'POST', body }),
+  getRapportino: (id: string) =>
+    request<{ rapportino: import('./types').PublicRapportino }>(`/rapportini/${id}`),
+  // Risposta binaria (PDF): non passa da request<T>, che assume sempre JSON. Stesso
+  // header Authorization delle altre chiamate autenticate, aggiunto a mano perché fetch
+  // non lo mette da solo su un download.
+  downloadRapportinoPdf: async (id: string): Promise<Blob> => {
+    const token = getToken();
+    const headers: Record<string, string> = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    const res = await fetch(`${API_BASE}/rapportini/${id}/pdf`, { headers });
+    if (!res.ok) {
+      const text = await res.text();
+      const data = text ? JSON.parse(text) : null;
+      const message = data?.error?.message ?? `Errore ${res.status}`;
+      if (res.status === 401) clearToken();
+      throw new ApiError(message, res.status, data?.error?.code);
+    }
+    return res.blob();
+  },
+  // Solo admin/project_manager (righe leggere, senza snapshot/firma — vedi RapportinoListItem).
+  listRapportini: (
+    page = 1,
+    limit = 20,
+    filters?: { projectId?: string; date?: string; status?: import('./types').RapportinoStatus },
+  ) =>
+    request<import('./types').PaginatedRapportini>(
+      `/rapportini${buildQuery({
+        page,
+        limit,
+        projectId: filters?.projectId,
+        date: filters?.date,
+        status: filters?.status,
+      })}`,
+    ),
+  // Chi ha creato il rapportino o un admin (verificato lato server, non qui).
+  annullaRapportino: (id: string, reason?: string) =>
+    request<{ rapportino: import('./types').PublicRapportino }>(`/rapportini/${id}/annulla`, {
+      method: 'POST',
+      body: { reason },
+    }),
+  reinviaEmailRapportino: (id: string, email?: string) =>
+    request<{ emailInviata: boolean; destinatario: string }>(`/rapportini/${id}/reinvia-email`, {
+      method: 'POST',
+      body: { email },
+    }),
+  // Solo admin, motivo obbligatorio: il backend rifiuta un reason vuoto (sbloccaSchema).
+  sbloccaRapportino: (id: string, reason: string) =>
+    request<{ rapportino: import('./types').PublicRapportino }>(`/rapportini/${id}/sblocca`, {
+      method: 'POST',
+      body: { reason },
+    }),
+  // Unico endpoint pubblico del modulo (auth:false, stesso pattern di login/
+  // resetPassword sopra): usa il signingToken restituito una sola volta da
+  // createRapportino, mai il token di sessione di chi chiama. rapportinoId è facoltativo
+  // (retrocompatibile con client vecchi): quando presente il backend verifica che
+  // combaci con l'id risolto dal token, chiudendo lo scarto tra l'anteprima mostrata
+  // (letta dall'id nell'URL) e il rapportino che il token firma davvero.
+  firmaRapportino: (
+    token: string,
+    firmatarioNome: string,
+    firmatarioEmail: string,
+    firmaPng: string,
+    rapportinoId?: string,
+  ) =>
+    request<{ firmato: true; emailInviata: boolean }>('/rapportini/firma', {
+      method: 'POST',
+      auth: false,
+      body: { token, firmatarioNome, firmatarioEmail, firmaPng, rapportinoId },
+    }),
 };

@@ -174,6 +174,10 @@ export interface FirmaInput {
   firmatarioNome: string;
   firmatarioEmail: string;
   firmaPng: string;
+  /** Facoltativo per compatibilità con client vecchi: se presente, deve combaciare con
+   * l'id risolto dal token (vedi signRapportino) — chiude lo scarto fra il rapportino
+   * mostrato in anteprima (letto dall'id nell'URL) e quello che il token firma davvero. */
+  rapportinoId?: string;
 }
 
 export interface FirmaContesto {

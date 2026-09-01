@@ -1,7 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { api, clearToken } from '../lib/api';
-import type { Project, Task, TimeLog, TimeLogTipo, CreateTimeLogInput, UpdateTimeLogInput } from '../lib/types';
+import type {
+  Project,
+  Task,
+  TimeLog,
+  TimeLogTipo,
+  CreateTimeLogInput,
+  UpdateTimeLogInput,
+} from '../lib/types';
 import { badgeClassForTipo, formatHours, PROJECT_STATUS_LABELS } from '../lib/format';
 import {
   CalendarIcon,
@@ -13,6 +20,7 @@ import {
   PackageIcon,
   XIcon,
 } from '../components/icons';
+import PreparaRapportino from '../components/PreparaRapportino';
 import {
   Button,
   Card,
@@ -27,6 +35,11 @@ import {
 } from '../components/ui';
 
 const TIPI: TimeLogTipo[] = ['ordinario', 'straordinario', 'notturno', 'festivo', 'permesso', 'ferie'];
+// Un rapportino esiste solo per cantieri "a consuntivo" (il backend rifiuta comunque la
+// creazione per gli altri, rapportini.service.ts): la tendina di questa scheda mostra
+// solo quelli, coerente con la stessa distinzione già fatta altrove nell'app
+// (etichettaCantiere/formatProjectId trattano i due tipi diversamente).
+const TIPO_COMMESSA_RAPPORTINO = 'consuntivo';
 const ABSENCE_TIPI: TimeLogTipo[] = ['ferie', 'permesso'];
 // Storico più profondo del default (20) del backend: serve a coprire per intero il
 // riepilogo "ultimi 7 giorni" qui sotto, non solo le ultimissime righe salvate.
@@ -121,7 +134,7 @@ export default function OperaioPage() {
   const [myLogsTotal, setMyLogsTotal] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'registra' | 'storico'>('registra');
+  const [activeTab, setActiveTab] = useState<'registra' | 'storico' | 'rapportino'>('registra');
 
   // Form
   const [selectedProjectId, setSelectedProjectId] = useState('');
@@ -146,6 +159,15 @@ export default function OperaioPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
 
   const navigate = useNavigate();
+  const location = useLocation();
+  // Messaggio "di ritorno" da FirmaPage dopo "Il cliente non firma" (navigate con
+  // state, mai persistito): letto una sola volta all'apertura, non riappare se la
+  // pagina viene ricaricata (location.state non sopravvive a un refresh).
+  const [infoMessage, setInfoMessage] = useState<string | null>(
+    (location.state as { rapportinoAnnullato?: boolean } | null)?.rapportinoAnnullato
+      ? 'Rapportino annullato: il cliente non ha firmato.'
+      : null,
+  );
 
   // selectDefaultProject: solo al primo caricamento si sceglie un cantiere/lavoro di
   // default. Richiamata anche dopo salvataggio/cancellazione per aggiornare le liste,
@@ -356,6 +378,14 @@ export default function OperaioPage() {
     setMaterials((prev) => prev.filter((_, idx) => idx !== i));
   }
 
+  // Cantieri "a consuntivo": unico tipo per cui esiste un rapportino, passati così com'è
+  // al componente condiviso PreparaRapportino (che qui mostra una tendina di scelta —
+  // in CantiereDetailPage il cantiere è già noto, niente tendina).
+  const consuntivoProjects = useMemo(
+    () => projects.filter((p) => p.tipoCommessa === TIPO_COMMESSA_RAPPORTINO),
+    [projects],
+  );
+
   const selectedTask = tasks.find((t) => t.id === taskId);
 
   // Le liste delle tendine nella forma attesa dal <Select> del design system: stessi
@@ -401,6 +431,20 @@ export default function OperaioPage() {
       </header>
 
       <main className="mx-auto flex max-w-xl flex-col gap-4 p-4">
+        {infoMessage && (
+          <div className={`${ALERT_SUCCESSO} flex items-start justify-between gap-3`} role="status">
+            <span>{infoMessage}</span>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="shrink-0"
+              onClick={() => setInfoMessage(null)}
+              aria-label="Chiudi il messaggio"
+            >
+              <XIcon />
+            </Button>
+          </div>
+        )}
         {error && (
           <div className={ALERT_ERRORE} role="alert">
             {error}
@@ -430,6 +474,17 @@ export default function OperaioPage() {
             onClick={() => setActiveTab('storico')}
           >
             Storico ({myLogsTotal})
+          </button>
+          <button
+            type="button"
+            className={`flex-1 cursor-pointer rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
+              activeTab === 'rapportino'
+                ? 'bg-white text-surface-900 shadow-card dark:bg-surface-700 dark:text-white'
+                : 'text-surface-500 hover:text-surface-700 dark:text-surface-400 dark:hover:text-surface-200'
+            }`}
+            onClick={() => setActiveTab('rapportino')}
+          >
+            Rapportino
           </button>
         </div>
 
@@ -785,6 +840,8 @@ export default function OperaioPage() {
             </Card>
           </>
         )}
+
+        {activeTab === 'rapportino' && <PreparaRapportino projects={consuntivoProjects} returnTo="/operaio" />}
       </main>
     </div>
   );

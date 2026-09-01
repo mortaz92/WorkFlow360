@@ -11,6 +11,7 @@ import CantiereDetailPage from './pages/CantiereDetailPage';
 import DipendentiPage from './pages/DipendentiPage';
 import DipendenteDetailPage from './pages/DipendenteDetailPage';
 import OperaioPage from './pages/OperaioPage';
+import FirmaPage from './pages/FirmaPage';
 import ReportPage from './pages/ReportPage';
 import ArchivioPage from './pages/ArchivioPage';
 import PrivacyPage from './pages/PrivacyPage';
@@ -69,6 +70,18 @@ export default function App() {
         element={
           <RequireAuth>
             <OperaioPage />
+          </RequireAuth>
+        }
+      />
+      {/* Schermo intero, senza sidebar/header: pensata per essere messa in mano al
+          cliente sul telefono dell'operaio. Fuori da PUBLIC_PATHS: la GET di anteprima e
+          "Il cliente non firma" restano autenticate con la sessione dell'operaio — solo
+          la POST finale di firma (rapportini.routes.ts) è davvero pubblica lato server. */}
+      <Route
+        path="/firma/:id"
+        element={
+          <RequireAuth>
+            <FirmaPage />
           </RequireAuth>
         }
       />

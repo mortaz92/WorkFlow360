@@ -71,6 +71,10 @@ const firmaSchema = z.object({
   // dire con precisione cosa non va. Il tetto duro sulla dimensione lo mette già
   // express.json({limit:'1mb'}) montato su questa rotta in app.ts.
   firmaPng: z.string().min(1),
+  // Facoltativo (client vecchi non lo mandano): quando presente deve combaciare con
+  // l'id risolto dal token, verificato in signRapportino — vedi il commento lì per lo
+  // scenario che questo chiude.
+  rapportinoId: z.string().uuid().optional(),
 });
 
 export const rapportiniRouter = Router();

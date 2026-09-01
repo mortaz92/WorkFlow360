@@ -2,7 +2,8 @@
 // duplicata in 6 pagine, con una versione (DashboardPage) che arrotondava le ore a 1
 // decimale fisso mentre tutte le altre ne mostravano fino a 2 — stesso dato, resa
 // diversa a seconda della pagina. Un solo punto vale per tutta l'app.
-import type { ProjectStatus, ProjectTipoCommessa, TimeLogTipo, UserRole } from './types';
+import type { ProjectStatus, ProjectTipoCommessa, RapportinoStatus, TimeLogTipo, UserRole } from './types';
+import type { BadgeVariant } from '../components/ui/Badge';
 
 // Ordine dei 6 tipi di ora, usato per popolare selettori e scomposizioni: era duplicato
 // (con lo stesso ordine) in OperaioPage, DashboardPage e ReportPage — terzo uso reale,
@@ -74,4 +75,21 @@ export const USER_ROLE_LABELS: Record<UserRole, string> = {
   admin: 'Amministratore',
   project_manager: 'Responsabile progetti',
   operaio: 'Operaio',
+};
+
+// Etichetta italiana e colore badge per lo stato del rapportino: prima duplicati identici
+// in RapportiniCantiere.tsx (elenco per admin/PM) e assenti in FirmaPage.tsx, che mostrava
+// l'enum grezzo (es. "scaduto") al CLIENTE finale — unico punto ora per entrambi i file.
+export const RAPPORTINO_STATUS_LABELS: Record<RapportinoStatus, string> = {
+  in_firma: 'In attesa di firma',
+  firmato: 'Firmato',
+  annullato: 'Annullato',
+  scaduto: 'Scaduto',
+};
+
+export const RAPPORTINO_STATUS_BADGE_VARIANT: Record<RapportinoStatus, BadgeVariant> = {
+  in_firma: 'warning',
+  firmato: 'success',
+  annullato: 'default',
+  scaduto: 'danger',
 };

@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { api, ApiError } from '../lib/api';
+import { api, ApiError, getCurrentUser } from '../lib/api';
 import type { AssignableUser, Project, ProjectDetail, ProjectStatus, ProjectTipoCommessa, Task } from '../lib/types';
 import {
   ArrowLeftIcon,
@@ -14,6 +14,8 @@ import {
 import { etichettaCantiere, formatDate, formatHours, PROJECT_STATUS_LABELS } from '../lib/format';
 import TabellaOre from '../components/TabellaOre';
 import RegistroCantiere from '../components/RegistroCantiere';
+import RapportiniCantiere from '../components/RapportiniCantiere';
+import PreparaRapportino from '../components/PreparaRapportino';
 import {
   Button,
   Card,
@@ -81,6 +83,14 @@ export default function CantiereDetailPage() {
   const [assignableUsers, setAssignableUsers] = useState<AssignableUser[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  // Sblocco di un rapportino firmato è riservato ad admin (vedi RapportiniCantiere):
+  // stessa lettura del token già usata in DipendenteDetailPage/UserEditForm.
+  const currentRole = getCurrentUser()?.role;
+  const isAdmin = currentRole === 'admin';
+  // Preparare un rapportino (e avviarne la firma) vale per admin E project_manager,
+  // stesso criterio di assertPuoPrepararlo/isManager nel backend (core/roles.ts) — non
+  // solo isAdmin sopra, che qui gate solo lo sblocco di un rapportino già firmato.
+  const isManager = currentRole === 'admin' || currentRole === 'project_manager';
 
   async function load() {
     if (!id) return;
@@ -244,6 +254,18 @@ export default function CantiereDetailPage() {
               )}
             </CardContent>
           </Card>
+
+          {/* I rapportini esistono solo per cantieri "a consuntivo" (il backend rifiuta
+              comunque la creazione per gli altri): niente sezione vuota e fuorviante per
+              un cantiere a contratto fisso, dove questa feature non si applica mai. */}
+          {project.tipoCommessa === 'consuntivo' && (
+            <>
+              {isManager && (
+                <PreparaRapportino projectId={project.id} returnTo={`/cantieri/${project.id}`} />
+              )}
+              {!kpiForbidden && <RapportiniCantiere projectId={project.id} isAdmin={isAdmin} />}
+            </>
+          )}
 
           {!kpiForbidden && <RegistroCantiere projectId={project.id} />}
         </>
