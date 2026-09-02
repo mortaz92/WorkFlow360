@@ -258,3 +258,16 @@ export function ArchiveIcon({ className = 'h-5 w-5' }: IconProps) {
     </svg>
   );
 }
+
+// Penna sopra una riga di firma: voce di menu "Rapportini clienti" (il documento che il
+// cliente firma). Distinta da DocumentIcon (Report) e ClipboardIcon (lavori) di proposito:
+// tre voci vicine con lo stesso foglio stilizzato non si distinguono a colpo d'occhio.
+export function PenIcon({ className = 'h-5 w-5' }: IconProps) {
+  return (
+    <svg {...BASE_PROPS} className={className} aria-hidden="true">
+      <path d="M13.5 3l3.5 3.5L7 16.5H3.5V13L13.5 3z" />
+      <path d="M11.5 5l3.5 3.5" />
+      <path d="M10 17.5h7" />
+    </svg>
+  );
+}

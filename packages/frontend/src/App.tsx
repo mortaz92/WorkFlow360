@@ -13,6 +13,7 @@ import DipendenteDetailPage from './pages/DipendenteDetailPage';
 import OperaioPage from './pages/OperaioPage';
 import FirmaPage from './pages/FirmaPage';
 import ReportPage from './pages/ReportPage';
+import RapportiniPage from './pages/RapportiniPage';
 import ArchivioPage from './pages/ArchivioPage';
 import PrivacyPage from './pages/PrivacyPage';
 import TermsPage from './pages/TermsPage';
@@ -63,6 +64,7 @@ export default function App() {
         <Route path="/dipendenti" element={<DipendentiPage />} />
         <Route path="/dipendenti/:id" element={<DipendenteDetailPage />} />
         <Route path="/report" element={<ReportPage />} />
+        <Route path="/rapportini" element={<RapportiniPage />} />
         <Route path="/archivio" element={<ArchivioPage />} />
       </Route>
       <Route

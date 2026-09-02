@@ -32,8 +32,9 @@ interface SigningState {
    * qui: la firma usa `id` da useParams, già uguale a questo valore per costruzione. */
   rapportinoId?: string;
   /** Dove tornare dopo la firma o l'annullamento: '/operaio' se ha preparato il
-   * rapportino un operaio, '/cantieri/{id}' se admin/PM da CantiereDetailPage. Assente su
-   * link aperti senza questo state (vecchi bookmark) — fallback a '/operaio'. */
+   * rapportino un operaio, '/rapportini' se admin/PM dalla pagina "Rapportini clienti",
+   * '/cantieri/{id}' se admin/PM da CantiereDetailPage. Assente su link aperti senza
+   * questo state (vecchi bookmark) — fallback a '/operaio'. */
   returnTo?: string;
 }
 
@@ -48,9 +49,14 @@ export default function FirmaPage() {
   // nel piano della feature.
   const signingToken = (location.state as SigningState | null)?.signingToken;
   const returnTo = (location.state as SigningState | null)?.returnTo ?? '/operaio';
-  // L'unica altra destinazione possibile oggi è '/cantieri/{id}' (admin/PM): il testo del
-  // bottone deve dire dove si torna davvero, non sempre "alla registrazione ore".
-  const returnLabel = returnTo === '/operaio' ? 'Torna alla registrazione ore' : 'Torna al cantiere';
+  // Il testo del bottone deve dire dove si torna davvero, non sempre "alla registrazione
+  // ore": le destinazioni oggi sono '/operaio', '/rapportini' e '/cantieri/{id}'.
+  const returnLabel =
+    returnTo === '/operaio'
+      ? 'Torna alla registrazione ore'
+      : returnTo === '/rapportini'
+        ? 'Torna ai rapportini'
+        : 'Torna al cantiere';
 
   const [rapportino, setRapportino] = useState<PublicRapportino | null>(null);
   const [loadingRapportino, setLoadingRapportino] = useState(true);

@@ -484,7 +484,7 @@ export default function OperaioPage() {
             }`}
             onClick={() => setActiveTab('rapportino')}
           >
-            Rapportino
+            Rapportino cliente
           </button>
         </div>
 

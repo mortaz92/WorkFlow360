@@ -7,6 +7,7 @@ import {
   CraneIcon,
   UsersIcon,
   DocumentIcon,
+  PenIcon,
   ArchiveIcon,
   GearIcon,
   LogoutIcon,
@@ -19,6 +20,9 @@ import {
 const NAV_ITEMS: {
   to: string;
   label: string;
+  /** Etichetta corta per la barra in basso su telefono (5 voci in ~75px l'una): senza,
+   * "Rapportini clienti" andrebbe a capo o sarebbe tagliata. Assente = si usa `label`. */
+  shortLabel?: string;
   icon: (p: { className?: string }) => JSX.Element;
   roles?: UserRole[];
 }[] = [
@@ -26,10 +30,20 @@ const NAV_ITEMS: {
   { to: '/cantieri', label: 'Cantieri', icon: CraneIcon },
   { to: '/dipendenti', label: 'Dipendenti', icon: UsersIcon, roles: ['admin', 'project_manager'] },
   { to: '/report', label: 'Report', icon: DocumentIcon, roles: ['admin', 'project_manager'] },
+  // Voce dedicata, col nome con cui l'utente la cerca: prima la funzione stava solo dentro
+  // il dettaglio di un cantiere e in fondo a Report, e non veniva trovata.
+  {
+    to: '/rapportini',
+    label: 'Rapportini clienti',
+    shortLabel: 'Rapportini',
+    icon: PenIcon,
+    roles: ['admin', 'project_manager'],
+  },
   { to: '/archivio', label: 'Archivio', icon: ArchiveIcon, roles: ['admin', 'project_manager'] },
 ];
 
-// Mobile bottom navigation (max 5 items)
+// Mobile bottom navigation (max 5 items): con 6 voci resta fuori l'ultima, Archivio —
+// la meno frequente (cantieri chiusi), comunque raggiungibile dal menu a panino.
 const MOBILE_NAV_ITEMS = NAV_ITEMS.slice(0, 5);
 
 function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
@@ -166,7 +180,7 @@ function MobileBottomNav({ activePath, onNavigate }: { activePath: string; onNav
             aria-current={isActive ? 'page' : undefined}
           >
             <item.icon className="h-5 w-5" />
-            <span>{item.label}</span>
+            <span>{item.shortLabel ?? item.label}</span>
           </NavLink>
         );
       })}
