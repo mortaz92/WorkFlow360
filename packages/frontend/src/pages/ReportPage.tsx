@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
-import { api } from '../lib/api';
+import { api, getCurrentUser } from '../lib/api';
 import type { HoursByProjectRow, HoursByUserRow } from '../lib/types';
 import { PrinterIcon } from '../components/icons';
 import TabellaOre from '../components/TabellaOre';
+import RapportiniCantiere from '../components/RapportiniCantiere';
 import { monthToRange } from '../lib/format';
 import { Button, Input } from '../components/ui';
 
@@ -27,6 +28,10 @@ function monthLabel(month: string): string {
 }
 
 export default function ReportPage() {
+  // Come in CantiereDetailPage: governa solo il bottone "Sblocca" dentro RapportiniCantiere
+  // (un project_manager arriva comunque a questa pagina — vedi il gate di ruolo in
+  // AppLayout — ma sbloccare un rapportino firmato resta un intervento riservato ad admin).
+  const isAdmin = getCurrentUser()?.role === 'admin';
   const [byProject, setByProject] = useState<HoursByProjectRow[]>([]);
   const [byUser, setByUser] = useState<HoursByUserRow[]>([]);
   // '' = tutto lo storico (comportamento di default, invariato rispetto a prima).
@@ -101,6 +106,10 @@ export default function ReportPage() {
       {loading && <p className={`${TESTO_ATTENUATO} no-print`}>Caricamento…</p>}
       <TabellaOre title="Ore per commessa" rows={byProject} getName={(r) => r.projectName} />
       <TabellaOre title="Ore per operaio" rows={byUser} getName={(r) => r.userName} />
+      {/* Stesso componente usato dentro un singolo cantiere (CantiereDetailPage), qui senza
+          projectId: mostra i rapportini di TUTTA l'azienda invece di uno solo — il backend
+          filtra già per companyId del token, quindi niente da cambiare lì. */}
+      <RapportiniCantiere isAdmin={isAdmin} />
       <p className={`${TESTO_ATTENUATO} no-print`}>
         I report mostrano le ore di TUTTA l'azienda (multi-tenant isolato). Gli operai non
         possono accedervi. Per consegnare il report a un dipendente o a un cliente, usa

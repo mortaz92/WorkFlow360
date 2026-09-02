@@ -19,11 +19,14 @@ const ELENCO = 'm-0 flex list-none flex-col gap-2 p-0';
 const RIGA_ELENCO =
   'rounded-lg border border-surface-200 bg-white p-3 dark:border-surface-700 dark:bg-surface-800';
 
-// Elenco rapportini di UN cantiere (Archivio, punto "rapportino firmato dal cliente"):
-// riaprire il PDF, rimandare l'email, annullare uno non ancora firmato, sbloccare (solo
-// admin, motivo obbligatorio) uno già firmato. Solo admin/PM arrivano fin qui — stesso
-// gate (kpiForbidden) già applicato dal chiamante a RegistroCantiere.
-export default function RapportiniCantiere({ projectId, isAdmin }: { projectId: string; isAdmin: boolean }) {
+// Elenco rapportini: di UN cantiere quando il chiamante passa projectId (CantiereDetailPage),
+// di TUTTA l'azienda quando lo omette (ReportPage — stesso componente, stesso backend:
+// GET /rapportini senza filtro projectId restituisce già solo i rapportini dell'azienda
+// del token, mai di un'altra). Azioni: riaprire il PDF, rimandare l'email, annullare uno
+// non ancora firmato, sbloccare (solo admin, motivo obbligatorio) uno già firmato. Solo
+// admin/PM arrivano fin qui — stesso gate (kpiForbidden) già applicato dal chiamante a
+// RegistroCantiere, o il gate di ruolo sulla voce "Report" in AppLayout.
+export default function RapportiniCantiere({ projectId, isAdmin }: { projectId?: string; isAdmin: boolean }) {
   const [rapportini, setRapportini] = useState<RapportinoListItem[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
