@@ -31,9 +31,26 @@ const codeSchema = z
     return trimmed.length === 0 ? null : trimmed;
   });
 
+// Stessa normalizzazione di codeSchema, per la stessa ragione: un campo lasciato bianco
+// nel form arriva come "" e deve valere "nessun indirizzo", non un indirizzo vuoto — sul
+// rapportino la differenza è fra stampare il trattino e stampare una riga vuota.
+// Il tetto di lunghezza vive QUI e non in colonna (la colonna è `text`): così una stringa
+// troppo lunga diventa un 400 con messaggio, non un 22001 del driver travestito da 500.
+const addressSchema = z
+  .string()
+  .max(500)
+  .nullable()
+  .optional()
+  .transform((val) => {
+    if (val == null) return val;
+    const trimmed = val.trim();
+    return trimmed.length === 0 ? null : trimmed;
+  });
+
 const createProjectSchema = z.object({
   name: z.string().min(1).max(255),
   code: codeSchema,
+  address: addressSchema,
   description: z.string().max(2000).optional(),
   status: statusEnum.optional(),
   tipoCommessa: tipoCommessaEnum.optional(),
@@ -46,6 +63,7 @@ const updateProjectSchema = z
   .object({
     name: z.string().min(1).max(255).optional(),
     code: codeSchema,
+    address: addressSchema,
     description: z.string().max(2000).nullable().optional(),
     status: statusEnum.optional(),
     tipoCommessa: tipoCommessaEnum.optional(),

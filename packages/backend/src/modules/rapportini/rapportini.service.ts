@@ -21,7 +21,8 @@ import { sendEmail } from '../../core/mail';
 import { generateOpaqueToken, hashOpaqueToken } from '../../core/tokens';
 import { recordAudit } from '../auditLog/auditLog.service';
 import type { AuthenticatedUser } from '../auth/auth.types';
-import { buildRapportinoPdf, type FirmaPdf } from './rapportino.pdf';
+import { assertFirmaPngDisegnabile, validaFirmaPng } from './firmaPng';
+import { buildRapportinoPdf, formatOreIt, type FirmaPdf } from './rapportino.pdf';
 import {
   SNAPSHOT_VERSIONE,
   rapportinoSnapshotSchema,
@@ -44,33 +45,6 @@ import {
 type Queryable = Pick<typeof db, 'select'>;
 
 const SIGNING_TOKEN_BYTES = 32;
-const PREFISSO_DATA_PNG = 'data:image/png;base64,';
-const FIRMA_MAX_BYTES = 500 * 1024;
-// Il base64 usa 4 caratteri per ogni 3 byte: la stringa in arrivo è circa 4/3 dei byte
-// che rappresenta. Serve a rifiutare un payload sovradimensionato PRIMA di decodificarlo
-// (vedi validaFirmaPng), non a misurarlo con precisione — il controllo esatto sui byte
-// decodificati resta comunque, subito dopo.
-const FIRMA_MAX_BASE64_CHARS = Math.ceil((FIRMA_MAX_BYTES * 4) / 3) + 4;
-// Gli 8 byte iniziali obbligatori di ogni file PNG (RFC 2083).
-const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
-// Struttura dell'header PNG: dopo i magic byte, il primo chunk DEVE essere IHDR
-// (RFC 2083 §11.2.2). Offset assoluti dall'inizio del file:
-//   8..11  lunghezza del chunk    12..15 tipo del chunk ("IHDR")
-//   16..19 larghezza (big-endian) 20..23 altezza (big-endian)
-const PNG_OFFSET_TIPO_CHUNK = 12;
-const PNG_OFFSET_LARGHEZZA = 16;
-const PNG_OFFSET_ALTEZZA = 20;
-const PNG_HEADER_MIN_BYTES = 24;
-// Tetto sulle dimensioni DICHIARATE nell'IHDR. La firma di un cliente è un tratto su un
-// canvas da tablet: poche centinaia di pixel per lato. Questi limiti sono già larghissimi
-// per quell'uso, e servono a tutt'altro — un PNG può dichiarare dimensioni enormi restando
-// minuscolo da compresso (una "bomba di decompressione"), e chi lo decodifica alloca
-// larghezza × altezza × 4 byte PRIMA di accorgersi che è assurdo. Su Render il backend gira
-// con 512MB (plan free, vedi render.yaml): un'allocazione simile non lancia un'eccezione
-// che si possa intercettare con un try/catch, fa terminare il processo dal sistema mentre
-// un cliente sta firmando. Per questo il controllo sta PRIMA di qualunque decodifica.
-const FIRMA_MAX_LARGHEZZA_PX = 2000;
-const FIRMA_MAX_ALTEZZA_PX = 1000;
 // Stati in cui il rapportino tiene bloccate le proprie ore.
 const STATI_BLOCCANTI: RapportinoStatus[] = ['in_firma', 'firmato'];
 // Nome dell'indice UNIQUE PARZIALE creato a mano in drizzle/0012_rapportino_partial_unique.sql.
@@ -78,6 +52,10 @@ const STATI_BLOCCANTI: RapportinoStatus[] = ['in_firma', 'firmato'];
 // un 23505 dice "duplicato", non QUALE duplicato, e attribuire il messaggio sbagliato
 // manderebbe l'utente a cercare un rapportino in attesa di firma che non esiste.
 const VINCOLO_UNO_IN_FIRMA = 'rapportini_project_id_date_in_firma_unique';
+// Nome del terzo UNIQUE della tabella (company_id, numero), dichiarato in
+// schema/rapportini.ts: distinguerlo dagli altri due serve a non dire all'utente di
+// annullare un rapportino in attesa di firma quando il conflitto riguarda il progressivo.
+const VINCOLO_NUMERO = 'rapportini_company_id_numero_unique';
 
 function formatDataIt(value: Date): string {
   const due = (n: number) => String(n).padStart(2, '0');
@@ -89,9 +67,16 @@ function formatDataIsoIt(isoDate: string): string {
   return giorno && mese && anno ? `${giorno}/${mese}/${anno}` : isoDate;
 }
 
-// Quantità materiali: numeric(12,3) arriva da Postgres come "6.000". Sul documento che
-// firma il cliente si scrive "6", non "6.000" — stessa normalizzazione per le righe e
-// per i totali, così due numeri uguali non appaiono mai scritti in due modi diversi.
+// Quantità materiali: numeric(12,3) arriva da Postgres come "6.000", e nello snapshot si
+// scrive "6" — stessa normalizzazione per le righe e per i totali, così lo stesso numero
+// non finisce scritto in due modi diversi dentro lo stesso documento (e quindi dentro
+// l'hash che lo sigilla).
+//
+// È una normalizzazione di MEMORIA, non di presentazione: il punto resta il separatore
+// decimale, perché questo valore viene riletto con Number() da calcolaTotali per sommare
+// le righe — con la virgola diventerebbe NaN e i totali del documento sparirebbero. La
+// lettura italiana ("12,5") la applicano le rese, ognuna con la propria funzione:
+// formatQuantitaIt nel PDF, formatQuantita nel frontend.
 function formatQuantita(valore: number): string {
   return String(Number(valore.toFixed(3)));
 }
@@ -149,6 +134,40 @@ function leggiSnapshot(row: { id: string; snapshotJson: unknown }): RapportinoSn
  * corruzione dei dati oppure una modifica fatta fuori dall'applicazione (una UPDATE a
  * mano sul database): entrambi i casi vanno visti nei log, non scoperti in tribunale.
  */
+/*
+ * PERCHÉ IL N° PROGRESSIVO NON È COPERTO DA QUESTA PROVA (decisione, non dimenticanza).
+ *
+ * `snapshot_hash` copre `snapshot_json` e basta. Il numero rosso del documento — quello
+ * con cui il cliente lo ritrova — sta in COLONNA, quindi una UPDATE fatta a mano sul
+ * database lo cambierebbe senza che nulla se ne accorga: esattamente lo scenario per cui
+ * `snapshot_hash` esiste. L'osservazione è giusta; la conclusione "aggiungiamo una colonna
+ * document_hash" no, per tre ragioni concrete.
+ *
+ * 1. Non è raggiungibile dall'applicazione. Le uniche UPDATE su `rapportini` in tutto il
+ *    codice scrivono status, cancel_reason, unlocked_*, email_* e signer_* (verificato:
+ *    cinque punti, nessuno tocca `numero`). Il numero si scrive alla INSERT e mai più.
+ *    Non esiste una richiesta HTTP che possa cambiarlo.
+ * 2. Una colonna aggiunta ora nascerebbe VUOTA proprio sui documenti che contano. Tutti i
+ *    rapportini già firmati avrebbero document_hash NULL, e riempirla con un backfill
+ *    significherebbe calcolarla dalle righe che potrebbero essere già state alterate: il
+ *    backfill certificherebbe l'alterazione invece di rivelarla. Una prova d'integrità
+ *    creata dopo il fatto non prova niente sul prima.
+ * 3. Contro una UPDATE fatta fuori dall'applicazione, la difesa vera non è un'altra
+ *    colonna scritta dalla stessa applicazione: sono i privilegi sul database (niente
+ *    UPDATE per l'utente applicativo su questa tabella) o un trigger. Vive a un altro
+ *    livello, non qui.
+ *
+ * E una prova esterna sul numero esiste già, senza scrivere una riga di codice: il PDF
+ * viene generato CON il numero stampato sopra e spedito al cliente, con l'azienda in copia
+ * nascosta (vedi inviaRapportinoFirmato). Sono due caselle di posta fuori da questo
+ * database. Un numero cambiato dopo la firma non corrisponderebbe più al documento che
+ * entrambi hanno in mano — che è più di quanto dimostrerebbe una colonna in più.
+ *
+ * NON si tocca invece l'input di `hashSnapshot` per infilarci il numero: cambierebbe il
+ * risultato per OGNI rapportino già scritto, e da quel momento ogni documento esistente
+ * risulterebbe "INTEGRITÀ VIOLATA" — si romperebbe la prova che funziona per estenderne
+ * la portata a un caso che non è raggiungibile.
+ */
 function verificaIntegritaSnapshot(row: { id: string; snapshotJson: unknown; snapshotHash: string }): void {
   let calcolato: string;
   try {
@@ -178,16 +197,26 @@ async function caricaMaterialiPerTimeLog(
     .select({
       timeLogId: timeLogMaterials.timeLogId,
       name: timeLogMaterials.name,
+      code: timeLogMaterials.code,
       quantity: timeLogMaterials.quantity,
       unit: timeLogMaterials.unit,
     })
     .from(timeLogMaterials)
     .where(and(inArray(timeLogMaterials.timeLogId, timeLogIds), eq(timeLogMaterials.companyId, companyId)))
-    .orderBy(asc(timeLogMaterials.name));
+    // `id` come secondo criterio: due materiali con lo STESSO nome (stesso articolo con
+    // due codici diversi) lascerebbero altrimenti l'ordine alla decisione di Postgres, e
+    // due costruzioni consecutive dello stesso snapshot potrebbero uscire in ordine
+    // diverso — cioè con due hash diversi, e un 409 "le ore sono cambiate" immotivato.
+    .orderBy(asc(timeLogMaterials.name), asc(timeLogMaterials.id));
 
   for (const riga of righe) {
     const lista = perTimeLog.get(riga.timeLogId) ?? [];
-    lista.push({ nome: riga.name, quantita: formatQuantita(Number(riga.quantity)), unita: riga.unit });
+    lista.push({
+      nome: riga.name,
+      quantita: formatQuantita(Number(riga.quantity)),
+      unita: riga.unit,
+      codice: riga.code,
+    });
     perTimeLog.set(riga.timeLogId, lista);
   }
   return perTimeLog;
@@ -196,7 +225,10 @@ async function caricaMaterialiPerTimeLog(
 function calcolaTotali(righe: SnapshotRiga[]): RapportinoSnapshot['totali'] {
   let oreTotali = 0;
   const perTipo: Record<string, number> = {};
-  const materiali = new Map<string, { nome: string; unita: string; quantita: number }>();
+  const materiali = new Map<
+    string,
+    { nome: string; unita: string; codice: string | null; quantita: number; chiave: string }
+  >();
 
   for (const riga of righe) {
     const ore = Number(riga.ore);
@@ -205,19 +237,64 @@ function calcolaTotali(righe: SnapshotRiga[]): RapportinoSnapshot['totali'] {
     for (const materiale of riga.materiali) {
       // Chiave nome+unità e non solo nome: 3 "m" e 3 "pz" dello stesso articolo non
       // sono 6 di niente, sommarli produrrebbe un totale privo di significato.
-      const chiave = JSON.stringify([materiale.nome, materiale.unita]);
-      const corrente = materiali.get(chiave) ?? { nome: materiale.nome, unita: materiale.unita, quantita: 0 };
+      // Per la stessa ragione ci sta dentro anche il CODICE: 3 pezzi del codice A e 3
+      // del codice B non sono 6 pezzi di un codice. Fuori dalla chiave bisognerebbe
+      // scegliere quale dei due stampare accanto alla quantità sommata, e qualunque
+      // scelta produrrebbe una riga FALSA su un documento firmato. Conseguenza voluta e
+      // visibile: lo stesso articolo scritto una volta col codice e una senza dà DUE
+      // righe — un'anomalia che l'operaio vede e corregge, invece di una fusione muta.
+      const chiave = JSON.stringify([materiale.nome, materiale.unita, materiale.codice ?? '']);
+      const corrente = materiali.get(chiave) ?? {
+        nome: materiale.nome,
+        unita: materiale.unita,
+        codice: materiale.codice ?? null,
+        quantita: 0,
+        // La chiave viene CONSERVATA, non solo usata per la Map: serve all'ordinamento
+        // qui sotto come criterio finale. Vedi il commento là per il motivo.
+        chiave,
+      };
       corrente.quantita += Number(materiale.quantita);
       materiali.set(chiave, corrente);
     }
   }
 
+  // Il rapportino può quindi mostrare PIÙ RIGHE materiali del report di cantiere, che
+  // aggrega per nome+unità (reports.service.ts) su mesi di registrazioni in cui lo stesso
+  // articolo è stato scritto a volte col codice e a volte senza. Le quantità totali
+  // restano coerenti; è il numero di righe a poter differire. Divergenza consapevole,
+  // scritta qui perché fra sei mesi sembrerebbe un bug.
   return {
     oreTotali: oreTotali.toFixed(2),
     perTipo: Object.fromEntries(Object.entries(perTipo).map(([tipo, ore]) => [tipo, ore.toFixed(2)])),
+    // Ordinamento TOTALE (nome, poi unità, poi codice, poi la chiave di aggregazione) e
+    // non più il solo nome: col codice nella chiave i pareggi sul nome sono la norma, e
+    // l'ordine deve restare deterministico perché createRapportino calcola l'hash dello
+    // snapshot DUE volte e li confronta — un ordine instabile farebbe fallire ogni
+    // creazione con un 409 "le ore sono cambiate" che non corrisponde a nessun cambiamento.
+    //
+    // Due dettagli che sembrano pignoleria e non lo sono:
+    // 1. `localeCompare` con locale ESPLICITO 'it'. Senza, il criterio di confronto è
+    //    quello della macchina: la stessa versione del codice ordinerebbe in modo diverso
+    //    sul portatile dello sviluppatore e nel container di Render, a seconda di LANG.
+    //    Un documento firmato non può dipendere dalle variabili d'ambiente di chi lo
+    //    genera.
+    // 2. La CHIAVE di aggregazione come ultimo criterio, confrontata per code point (`<`),
+    //    non con localeCompare. Il confronto per locale può restituire 0 su stringhe
+    //    DIVERSE — i caratteri ignorabili come il soft hyphen (U+00AD) o lo zero-width
+    //    joiner non contano nulla per l'ordinamento — e due voci dichiarate "pari"
+    //    resterebbero nell'ordine in cui la Map le ha ricevute, cioè nell'ordine in cui
+    //    l'operaio ha inserito le righe. Ma quelle due voci hanno chiavi diverse (per
+    //    definizione: sono due voci distinte della Map), quindi la chiave separa sempre e
+    //    l'ordine finale è totale.
     materiali: [...materiali.values()]
-      .sort((a, b) => a.nome.localeCompare(b.nome))
-      .map((m) => ({ nome: m.nome, quantita: formatQuantita(m.quantita), unita: m.unita })),
+      .sort(
+        (a, b) =>
+          a.nome.localeCompare(b.nome, 'it') ||
+          a.unita.localeCompare(b.unita, 'it') ||
+          (a.codice ?? '').localeCompare(b.codice ?? '', 'it') ||
+          (a.chiave < b.chiave ? -1 : a.chiave > b.chiave ? 1 : 0),
+      )
+      .map((m) => ({ nome: m.nome, quantita: formatQuantita(m.quantita), unita: m.unita, codice: m.codice })),
   };
 }
 
@@ -291,7 +368,16 @@ async function buildSnapshot(
     // createdAt come secondo criterio: lo split automatico ordinario/notturno/
     // straordinario produce 2-3 righe con la stessa data e lo stesso operaio, e senza
     // un ordine stabile due snapshot dello stesso giorno avrebbero hash diversi.
-    .orderBy(asc(users.name), asc(timeLogs.createdAt));
+    // `id` come TERZO criterio, perché i primi due non bastano a garantire un ordine
+    // totale: `created_at` è `defaultNow()`, cioè transaction_timestamp(), che resta
+    // COSTANTE per tutta una transazione — righe inserite nella stessa transazione hanno
+    // lo stesso identico istante. Oggi non capita solo perché createTimeLog non avvolge
+    // lo split in una transazione, cioè per una circostanza di un ALTRO modulo: il
+    // giorno in cui la si aggiungesse (cosa del tutto ragionevole da fare), due
+    // costruzioni dello stesso snapshot potrebbero uscire in ordine diverso e ogni
+    // creazione fallirebbe con un 409 immotivato. Stesso criterio già usato in
+    // caricaMaterialiPerTimeLog, per la stessa ragione.
+    .orderBy(asc(users.name), asc(timeLogs.createdAt), asc(timeLogs.id));
 
   const materialiPerTimeLog = await caricaMaterialiPerTimeLog(
     queryable,
@@ -328,6 +414,10 @@ async function buildSnapshot(
       nome: project.name,
       clientName: project.clientName,
       tipoCommessa: project.tipoCommessa,
+      // Valorizzato SEMPRE, anche a null, mai omesso quando manca: una chiave presente
+      // solo a volte darebbe due forme di JSON per lo stesso tipo di documento, e quindi
+      // due hash costruiti su strutture diverse.
+      indirizzo: project.address,
     },
     date,
     righe,
@@ -376,6 +466,7 @@ function toPublicRapportino(row: typeof rapportini.$inferSelect): PublicRapporti
     companyId: row.companyId,
     projectId: row.projectId,
     date: row.date,
+    numero: row.numero,
     revision: row.revision,
     status: statoPresentato(row),
     totalHours: row.totalHours,
@@ -428,6 +519,39 @@ export async function createRapportino(
   actingUser: AuthenticatedUser,
 ): Promise<CreatedRapportino> {
   return db.transaction(async (tx) => {
+    // ORDINE DEI LOCK DI QUESTA TRANSAZIONE: projects -> time_logs -> companies.
+    //
+    // Non è l'ordine che verrebbe naturale (prima il contenitore, poi il contenuto) ed è
+    // deliberato, perché nell'ordine contano anche i lock che NESSUNO SCRIVE: ogni INSERT
+    // prende un FOR KEY SHARE implicito sulle righe referenziate dalle proprie foreign
+    // key, e FOR KEY SHARE CONFLIGGE con FOR UPDATE. updateTimeLog (timeLogs.service.ts)
+    // blocca la riga delle ore con FOR UPDATE e poi inserisce in time_log_materials, la
+    // cui FK verso companies prende FOR KEY SHARE sulla riga dell'azienda: fa quindi
+    // time_logs -> companies senza che quel secondo lock compaia in una riga di codice.
+    // Finché QUI il FOR UPDATE su companies era la PRIMA istruzione l'ordine era opposto,
+    // le due transazioni si aspettavano a vicenda e Postgres rispondeva:
+    //   ERROR: deadlock detected
+    //   CONTEXT: while locking tuple in relation "companies"
+    //   SQL statement "SELECT 1 FROM ONLY "public"."companies" x WHERE "id" = $1
+    //                  FOR KEY SHARE OF x"
+    // Riprodotto dal vivo su Postgres reale creando un rapportino mentre si modificavano
+    // le ore con materiali — non è un rischio teorico. Prendendo companies per ULTIMO
+    // l'ordine coincide con quello di updateTimeLog e il ciclo non si chiude più.
+    //
+    // Il commento che stava qui prima dichiarava l'ordine companies -> projects ->
+    // time_logs "sicuro comunque": era proprio quello a causare il deadlock, perché
+    // guardava solo i FOR UPDATE scritti a mano e ignorava i lock impliciti delle FK.
+    //
+    // Esisteva anche una variante che Postgres non avrebbe potuto nemmeno diagnosticare:
+    // una scrittura fatta su una connessione DIVERSA da quella della transazione che
+    // tiene i lock non compare nel grafo delle attese, quindi non produce un "deadlock
+    // detected" ma un'attesa infinita che esaurisce il pool e fa cadere l'applicazione.
+    // Era il caso di recordAudit, che usava il `db` globale: ora accetta il `tx` del
+    // chiamante (vedi auditLog.service.ts).
+    //
+    // Chi aggiunge un lock qui dentro rispetti questa sequenza, e conti anche le foreign
+    // key delle proprie INSERT.
+
     // FOR UPDATE sulla riga del cantiere: serializza due creazioni concorrenti sullo
     // stesso cantiere, così il calcolo di MAX(revision)+1 e il controllo delle ore già
     // bloccate non corrono su uno stato che intanto è cambiato — stesso idioma di
@@ -561,6 +685,42 @@ export async function createRapportino(
       .from(rapportini)
       .where(and(eq(rapportini.projectId, projectId), eq(rapportini.date, date)));
 
+    // ULTIMO lock della transazione (vedi l'ordine dichiarato in cima): la riga
+    // dell'AZIENDA, che serializza il calcolo di MAX(numero)+1 fra due creazioni
+    // concorrenti della stessa azienda — stesso idioma di createProject in
+    // projects.service.ts, e stessa ragione: un retry ottimistico sotto concorrenza reale
+    // falliva circa una richiesta su tre.
+    // Sta QUI e non in cima perché è l'unico punto dell'ordine in cui non può fare da
+    // anello di un ciclo: da questa istruzione in avanti la transazione esegue soltanto
+    // una INSERT su rapportini e una UPDATE su righe di time_logs che ha già bloccato,
+    // quindi non attende più nessuno. La correttezza del progressivo è intatta: il lock
+    // viene preso PRIMA del MAX e tenuto fino al COMMIT, che è tutto ciò che serve.
+    // Effetto accettato (invariato): la creazione si serializza PER AZIENDA e non più per
+    // cantiere. La transazione contiene solo letture di database — nessuna chiamata di
+    // rete, nessun PDF (alla creazione non viene generato) — quindi resta breve.
+    const [azienda] = await tx
+      .select({ id: companies.id })
+      .from(companies)
+      .where(eq(companies.id, companyId))
+      .for('update')
+      .limit(1);
+    if (!azienda) {
+      // Irraggiungibile in pratica: buildSnapshot qui sopra ha già letto la riga
+      // dell'azienda e lancia lo stesso NotFoundError se manca. Resta come guardia, così
+      // il lock non passa in silenzio su zero righe se un domani quella lettura sparisse.
+      throw new NotFoundError('Azienda non trovata');
+    }
+
+    // Progressivo per AZIENDA, calcolato sotto il lock appena preso: nessun contatore
+    // separato da tenere allineato, e un rapportino annullato consuma comunque il proprio
+    // numero, perché la sua riga resta in tabella (annullaRapportino cambia solo lo stato)
+    // e continua a contare nel MAX — che è esattamente la semantica di un blocco a
+    // ricalco, dove la pagina strappata non torna disponibile.
+    const [{ ultimoNumero }] = await tx
+      .select({ ultimoNumero: sql<number>`coalesce(max(${rapportini.numero}), 0)::int` })
+      .from(rapportini)
+      .where(eq(rapportini.companyId, companyId));
+
     const signingToken = generateOpaqueToken(SIGNING_TOKEN_BYTES);
     const expiresAt = new Date(Date.now() + ms(CONFIG.RAPPORTINO_SIGN_EXPIRES_IN));
 
@@ -573,6 +733,7 @@ export async function createRapportino(
           projectId,
           date,
           revision: (ultimaRevisione ?? 0) + 1,
+          numero: (ultimoNumero ?? 0) + 1,
           createdBy: actingUser.id,
           snapshotJson: snapshotVerificato,
           snapshotHash: hashSnapshot(snapshotVerificato),
@@ -594,6 +755,14 @@ export async function createRapportino(
         if (uniqueViolationConstraint(err) === VINCOLO_UNO_IN_FIRMA) {
           throw new ConflictError(
             'Esiste già un rapportino in attesa di firma per questo cantiere e questo giorno.',
+          );
+        }
+        // Terzo UNIQUE possibile su questa insert: il progressivo per azienda. Col lock
+        // sulla riga dell'azienda è irraggiungibile — è la stessa "rete di sicurezza"
+        // già dichiarata per projectNumber e per revision, non un caso atteso.
+        if (uniqueViolationConstraint(err) === VINCOLO_NUMERO) {
+          throw new ConflictError(
+            'Il numero progressivo è stato assegnato a un altro rapportino nello stesso istante: riprova.',
           );
         }
         throw new ConflictError(
@@ -683,6 +852,7 @@ export async function listRapportini(
         id: rapportini.id,
         projectId: rapportini.projectId,
         date: rapportini.date,
+        numero: rapportini.numero,
         revision: rapportini.revision,
         status: rapportini.status,
         totalHours: rapportini.totalHours,
@@ -758,14 +928,20 @@ export async function annullaRapportino(
     // lasciare alcuna traccia. L'audit non impedisce l'abuso, ma lo rende ricostruibile.
     // Azione 'UPDATE' e non 'DELETE': la riga resta, cambia stato e libera le sue ore —
     // `annullato: true` nei changes dice quale aggiornamento è stato, senza ambiguità.
-    await recordAudit({
-      companyId,
-      userId: actingUser.id,
-      action: 'UPDATE',
-      entityType: 'rapportino',
-      entityId: row.id,
-      changes: { annullato: true, motivo: reason, oreLiberate: true },
-    });
+    // `tx` esplicito: la traccia deve stare nella STESSA transazione dell'annullamento
+    // (o entrambi o nessuno) e sulla STESSA connessione, per non aprire un'attesa
+    // circolare invisibile a Postgres — il perché completo è in auditLog.service.ts.
+    await recordAudit(
+      {
+        companyId,
+        userId: actingUser.id,
+        action: 'UPDATE',
+        entityType: 'rapportino',
+        entityId: row.id,
+        changes: { annullato: true, motivo: reason, oreLiberate: true },
+      },
+      tx,
+    );
 
     return toPublicRapportino(aggiornato);
   });
@@ -806,14 +982,18 @@ export async function sbloccaRapportino(
       .returning();
     await liberaOre(tx, [row.id], companyId);
 
-    await recordAudit({
-      companyId,
-      userId: actingUser.id,
-      action: 'UPDATE',
-      entityType: 'rapportino',
-      entityId: row.id,
-      changes: { sbloccato: true, motivo: reason, oreLiberate: true },
-    });
+    // `tx` esplicito, stessa ragione dell'annullamento qui sopra.
+    await recordAudit(
+      {
+        companyId,
+        userId: actingUser.id,
+        action: 'UPDATE',
+        entityType: 'rapportino',
+        entityId: row.id,
+        changes: { sbloccato: true, motivo: reason, oreLiberate: true },
+      },
+      tx,
+    );
 
     return toPublicRapportino(aggiornato);
   });
@@ -855,7 +1035,19 @@ async function generaPdfDifensivo(
   snapshot: RapportinoSnapshot,
 ): Promise<Buffer> {
   try {
-    return await buildRapportinoPdf(snapshot, firmaPerPdf(row));
+    // La firma salvata viene ricontrollata PRIMA di darla a pdfkit, e non è una ripetizione
+    // inutile della validazione fatta al momento della firma: quella protegge solo ciò che
+    // entra da oggi in poi. Una riga scritta prima di questa correzione può contenere un
+    // PNG con dati compressi illeggibili, e png-js lancia l'errore dentro la callback
+    // asincrona di zlib.inflate — un uncaughtException che nessun try/catch qui attorno
+    // può prendere e che farebbe TERMINARE IL PROCESSO a ogni richiesta del PDF (vedi
+    // firmaPng.ts). Il controllo è sincrono: se fallisce, questo catch lo traduce in un
+    // errore che nomina il rapportino, cioè una richiesta fallita invece del backend giù.
+    if (row.signaturePng) assertFirmaPngDisegnabile(row.signaturePng);
+    // Il numero viaggia a parte dallo snapshot perché sta in colonna: viene assegnato
+    // all'INSERT, mentre lo snapshot è costruito prima (l'anteprima ne produce uno per un
+    // rapportino che ancora non esiste). Stesso trattamento già riservato a `revision`.
+    return await buildRapportinoPdf(snapshot, firmaPerPdf(row), { numero: row.numero });
   } catch (err) {
     console.error(`[RAPPORTINI] Generazione del PDF fallita per il rapportino ${row.id}:`, err);
     throw new Error(`Impossibile generare il PDF del rapportino ${row.id}`, { cause: err });
@@ -909,7 +1101,12 @@ function emailRapportinoHtml(snapshot: RapportinoSnapshot, firmatarioNome: strin
     `<p>in allegato il rapportino dei lavori del <strong>${formatDataIsoIt(snapshot.date)}</strong> ` +
     `per il cantiere <strong>${escapeHtml(etichettaCantiere)} — ${escapeHtml(snapshot.cantiere.nome)}</strong>, ` +
     `da lei sottoscritto in cantiere.</p>` +
-    `<p>Ore totali riconosciute: <strong>${escapeHtml(snapshot.totali.oreTotali)}</strong>.</p>` +
+    // formatOreIt e non il valore grezzo dello snapshot: là le ore stanno come le
+    // restituisce Postgres ("7.50"), mentre il PDF allegato e il foglio che il cliente ha
+    // firmato a schermo scrivono entrambi "7,5". Questa email è l'unica delle tre rese che
+    // al cliente resta in casella: vederci un numero scritto in un terzo modo lo mette nella
+    // posizione di dover verificare che siano lo stesso numero.
+    `<p>Ore totali riconosciute: <strong>${escapeHtml(formatOreIt(snapshot.totali.oreTotali))}</strong>.</p>` +
     `<p>Il documento attesta esclusivamente le quantità (ore lavorate e materiali impiegati): ` +
     `non contiene prezzi né importi.</p>` +
     `<p>${escapeHtml(snapshot.azienda.nome)}</p>`
@@ -962,68 +1159,6 @@ async function registraEsitoEmail(rapportinoId: string, esito: { inviata: boolea
     .where(eq(rapportini.id, rapportinoId));
 }
 
-function validaFirmaPng(valore: string): string {
-  if (!valore.startsWith(PREFISSO_DATA_PNG)) {
-    throw new ValidationError(`La firma deve essere un'immagine PNG nel formato "${PREFISSO_DATA_PNG}..."`);
-  }
-  const base64 = valore.slice(PREFISSO_DATA_PNG.length);
-  // Buffer.from(..., 'base64') non fallisce mai su input sporco: scarta i caratteri che
-  // non riconosce e restituisce comunque qualcosa. Il controllo dell'alfabeto va fatto
-  // prima, altrimenti "non è base64" diventerebbe indistinguibile da "è un PNG strano".
-  if (base64.length === 0 || !/^[A-Za-z0-9+/]+={0,2}$/.test(base64)) {
-    throw new ValidationError('La firma non è codificata correttamente in base64');
-  }
-  // Tetto misurato sulla STRINGA, prima di decodificarla: Buffer.from alloca l'intero
-  // contenuto decodificato: controllare la dimensione dopo significherebbe pagare
-  // l'allocazione per intero proprio per gli input che si vogliono rifiutare, cioè
-  // esattamente quelli che un attaccante ha interesse a spedire grandi e in serie.
-  if (base64.length > FIRMA_MAX_BASE64_CHARS) {
-    throw new ValidationError(
-      `La firma supera la dimensione massima consentita (${Math.round(FIRMA_MAX_BYTES / 1024)} KB)`,
-    );
-  }
-
-  const bytes = Buffer.from(base64, 'base64');
-  // Controllo dei byte magici, non solo del prefisso dichiarato: il prefisso lo scrive
-  // il client e può dichiarare qualsiasi cosa. Senza questo, l'endpoint pubblico
-  // diventerebbe un modo per depositare contenuto arbitrario nel database e farselo
-  // restituire da un altro endpoint travestito da immagine.
-  if (bytes.length < PNG_MAGIC.length || !bytes.subarray(0, PNG_MAGIC.length).equals(PNG_MAGIC)) {
-    throw new ValidationError('Il contenuto della firma non è un file PNG valido');
-  }
-  if (bytes.length > FIRMA_MAX_BYTES) {
-    throw new ValidationError(
-      `La firma supera la dimensione massima consentita (${Math.round(FIRMA_MAX_BYTES / 1024)} KB)`,
-    );
-  }
-
-  // I magic byte dicono soltanto "comincia come un PNG": sono 8 byte che chiunque può
-  // anteporre a qualunque cosa. Qui si legge l'IHDR, il primo chunk obbligatorio, e si
-  // controlla che le dimensioni DICHIARATE siano plausibili per una firma tracciata a
-  // dito su un tablet, PRIMA che qualcuno provi a decodificare l'immagine. È il punto
-  // in cui si ferma una "bomba di decompressione": pochi KB compressi che dichiarano
-  // decine di migliaia di pixel per lato e che, decodificati, chiedono al processo più
-  // memoria di quanta ne abbia (512MB su Render). Quella allocazione non si intercetta
-  // con un try/catch — il processo viene terminato dal sistema, e con lui ogni altra
-  // richiesta in corso. Per questo il limite viene prima, e non ci si affida al fatto
-  // che poco più sotto la generazione del PDF sia comunque protetta.
-  if (bytes.length < PNG_HEADER_MIN_BYTES || bytes.toString('ascii', PNG_OFFSET_TIPO_CHUNK, PNG_OFFSET_LARGHEZZA) !== 'IHDR') {
-    throw new ValidationError("Il contenuto della firma non è un file PNG valido (intestazione IHDR assente)");
-  }
-  const larghezza = bytes.readUInt32BE(PNG_OFFSET_LARGHEZZA);
-  const altezza = bytes.readUInt32BE(PNG_OFFSET_ALTEZZA);
-  // Zero non è una dimensione ammessa da RFC 2083 e manderebbe in errore il decodificatore.
-  if (larghezza === 0 || altezza === 0) {
-    throw new ValidationError('Il contenuto della firma non è un file PNG valido (dimensioni nulle)');
-  }
-  if (larghezza > FIRMA_MAX_LARGHEZZA_PX || altezza > FIRMA_MAX_ALTEZZA_PX) {
-    throw new ValidationError(
-      `La firma dichiara dimensioni non plausibili (${larghezza}×${altezza} pixel): ` +
-        `il massimo consentito è ${FIRMA_MAX_LARGHEZZA_PX}×${FIRMA_MAX_ALTEZZA_PX}`,
-    );
-  }
-  return base64;
-}
 
 /**
  * Firma pubblica: l'UNICO punto non autenticato di questo modulo. Il cliente non è un
@@ -1085,12 +1220,16 @@ export async function signRapportino(
     // valido e basta rifirmare.
     let pdfFirmato: Buffer;
     try {
-      pdfFirmato = await buildRapportinoPdf(snapshotFirmato, {
-        firmatarioNome: input.firmatarioNome,
-        firmatarioEmail: input.firmatarioEmail,
-        firmaPngBase64: firmaPngPulita,
-        firmatoIl,
-      });
+      pdfFirmato = await buildRapportinoPdf(
+        snapshotFirmato,
+        {
+          firmatarioNome: input.firmatarioNome,
+          firmatarioEmail: input.firmatarioEmail,
+          firmaPngBase64: firmaPngPulita,
+          firmatoIl,
+        },
+        { numero: row.numero },
+      );
     } catch (err) {
       console.error(`[RAPPORTINI] Firma rifiutata: PDF non generabile per il rapportino ${row.id}:`, err);
       throw new ValidationError('Impossibile elaborare la firma: riprova');

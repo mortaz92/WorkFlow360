@@ -53,6 +53,13 @@ export const rapportini = pgTable(
     // con l'UNIQUE più sotto come rete di sicurezza contro due creazioni concorrenti —
     // stesso idioma già usato per projects.projectNumber.
     revision: integer('revision').notNull(),
+    // Progressivo PER AZIENDA, come il numero pre-stampato di un blocco a ricalco:
+    // assegnato alla creazione, mai riassegnato — un rapportino annullato consuma il suo
+    // numero, come una pagina strappata. Diverso da `revision`, che è il progressivo per
+    // (cantiere, giorno). Assegnato in rapportini.service.ts (MAX+1 sotto lock della riga
+    // dell'azienda), con l'UNIQUE più sotto come rete di sicurezza — stesso idioma già
+    // usato per projects.projectNumber.
+    numero: integer('numero').notNull(),
     status: rapportinoStatusEnum('status').notNull().default('in_firma'),
     createdBy: uuid('created_by')
       .notNull()
@@ -107,6 +114,7 @@ export const rapportini = pgTable(
       table.date,
       table.revision,
     ),
+    companyNumeroUnique: unique('rapportini_company_id_numero_unique').on(table.companyId, table.numero),
     // NOTA: manca qui, di proposito, l'UNIQUE PARZIALE su (project_id, date) WHERE
     // status = 'in_firma' — quello che impedisce due rapportini contemporaneamente in
     // attesa di firma per lo stesso cantiere/giorno. Drizzle-kit non genera indici

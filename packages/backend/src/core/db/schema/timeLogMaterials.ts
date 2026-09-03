@@ -19,6 +19,11 @@ export const timeLogMaterials = pgTable(
       .notNull()
       .references(() => timeLogs.id, { onDelete: 'cascade' }),
     name: varchar('name', { length: 255 }).notNull(),
+    // Codice articolo scritto dall'operaio (colonna CODICE del blocco cartaceo),
+    // facoltativo. varchar(50) come projects.code: lo schema Zod usa lo stesso limite,
+    // così una stringa più lunga diventa un 400 e non un errore del driver travestito
+    // da 500. Nessun indice: nessuna query filtra per codice.
+    code: varchar('code', { length: 50 }),
     quantity: numeric('quantity', { precision: 12, scale: 3 }).notNull(),
     unit: varchar('unit', { length: 32 }).notNull().default('pz'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

@@ -48,6 +48,54 @@ export function formatHours(n: string | number): string {
   return Number(n).toLocaleString('it-IT', { minimumFractionDigits: 1, maximumFractionDigits: 2 });
 }
 
+// Numero come lo scrive il DOCUMENTO: virgola decimale e nessuno zero inutile ("5", "7,5",
+// "1,25"). Si chiama "decimale" e non "ore" perché di ore non sa niente: la stessa
+// formattazione serve alle ore e alle QUANTITÀ di materiale, che dall'API arrivano
+// entrambe col punto (è la forma in cui Postgres restituisce un `numeric`).
+// Copia dichiarata di formatDecimaleIt in
+// packages/backend/src/modules/rapportini/rapportino.pdf.ts — i due pacchetti non
+// condividono codice, e il cliente firma sullo schermo il documento che poi riceve in PDF:
+// se lo stesso numero si leggesse "7,5" di là e "7.50" di qua, dovrebbe fidarsi che sia lo
+// stesso numero. Chi cambia l'una cambi anche l'altra.
+function formatDecimaleDocumento(n: string | number, decimaliMassimi: number): string {
+  const numero = Number(n);
+  if (!Number.isFinite(numero)) return String(n);
+  return numero.toLocaleString('it-IT', { maximumFractionDigits: decimaliMassimi });
+}
+
+// Ore: due decimali, quanti ne tiene `time_logs.hours_worked`.
+//
+// Perché esiste ACCANTO a formatHours e non al suo posto: formatHours tiene un decimale
+// minimo ("5,0") perché serve alle TABELLE (Report, storico dell'operaio, Archivio), dove
+// i numeri stanno incolonnati e i decimali allineati si leggono a colpo d'occhio.
+// Sono due letture dello stesso dato per due contesti diversi, non una duplicazione:
+// unificarle vorrebbe dire peggiorare l'una per far combaciare l'altra.
+export function formatOreDocumento(n: string | number): string {
+  return formatDecimaleDocumento(n, 2);
+}
+
+// Quantità di materiale: tre decimali, quanti ne tiene `time_log_materials.quantity`
+// (numeric(12,3)). Da usare OVUNQUE compaia una quantità, non solo sul foglio del
+// rapportino: dall'API quella colonna arriva grezza, cioè "12.000" per dodici metri di
+// cavo — e in italiano il punto separa le migliaia, quindi si legge "dodicimila". Nello
+// storico dell'operaio e nel registro di cantiere era scritta esattamente così.
+export function formatQuantita(n: string | number): string {
+  return formatDecimaleDocumento(n, 3);
+}
+
+// N° progressivo del rapportino, come il numero pre-stampato di un blocco a ricalco.
+// Cinque cifre perché è il formato del blocco cartaceo dell'azienda ("08379"): la
+// continuità visiva con ciò che i clienti riconoscono vale più del margine di un sesto
+// zero. Oltre 99999 il numero cresce senza padding, mai troncato.
+//
+// UNICO punto che decide questo formato lato frontend, PREFISSO INCLUSO — altrimenti due
+// schermate scriverebbero "N° 08380" e "n. 8380" per lo stesso documento (stessa regola
+// già scritta per etichettaCantiere qui sopra). Copia dichiarata di
+// formatNumeroRapportino in packages/backend/src/modules/rapportini/rapportino.pdf.ts.
+export function formatNumeroRapportino(numero: number): string {
+  return `N° ${String(numero).padStart(5, '0')}`;
+}
+
 // Un colore DISTINTO per ciascuno dei 6 tipi (non più 3 gruppi che condividevano lo
 // stesso colore, es. straordinario/notturno/festivo erano tutti "badge-warning"):
 // richiesto esplicitamente dall'utente il 20/08 per riconoscere il tipo a colpo d'occhio

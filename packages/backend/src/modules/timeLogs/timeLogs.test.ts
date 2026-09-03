@@ -160,6 +160,79 @@ describe('POST /api/v1/time-logs', () => {
   });
 });
 
+// Il codice articolo è facoltativo, ma il modo in cui "assente" viene rappresentato non
+// lo è: sul rapportino il codice entra nella chiave con cui i materiali vengono aggregati,
+// quindi una stringa vuota e un null darebbero due voci distinte per lo stesso articolo
+// su un documento che il cliente firma.
+describe('POST /api/v1/time-logs — codice del materiale', () => {
+  const DATA_CODICI = '2026-08-20';
+
+  async function creaConMateriale(materiale: Record<string, unknown>) {
+    const res = await request(app)
+      .post('/api/v1/time-logs')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({
+        taskId,
+        userId: adminId,
+        hoursWorked: '1',
+        date: DATA_CODICI,
+        startTime: '08:00',
+        materials: [materiale],
+      });
+    if (res.status === 201) created.push(res.body.timeLogs[0].id);
+    return res;
+  }
+
+  it('il codice inviato viene salvato e restituito', async () => {
+    const res = await creaConMateriale({ name: 'Faretto LED', quantity: '2', unit: 'pz', code: 'FL-220' });
+    expect(res.status).toBe(201);
+    expect(res.body.timeLogs[0].materials[0].code).toBe('FL-220');
+  });
+
+  it('codice omesso -> null, non stringa vuota', async () => {
+    const res = await creaConMateriale({ name: 'Nastro isolante', quantity: '1', unit: 'pz' });
+    expect(res.status).toBe(201);
+    expect(res.body.timeLogs[0].materials[0].code).toBeNull();
+  });
+
+  it('codice di soli spazi -> null; con spazi ai lati -> ripulito', async () => {
+    const soloSpazi = await creaConMateriale({ name: 'Guaina', quantity: '3', unit: 'm', code: '   ' });
+    expect(soloSpazi.status).toBe(201);
+    expect(soloSpazi.body.timeLogs[0].materials[0].code).toBeNull();
+
+    const conSpazi = await creaConMateriale({ name: 'Guaina', quantity: '3', unit: 'm', code: '  GU-16  ' });
+    expect(conSpazi.status).toBe(201);
+    expect(conSpazi.body.timeLogs[0].materials[0].code).toBe('GU-16');
+  });
+
+  it('codice oltre i 50 caratteri -> 400, non un errore del driver travestito da 500', async () => {
+    const res = await creaConMateriale({ name: 'Cavo', quantity: '1', unit: 'm', code: 'X'.repeat(51) });
+    expect(res.status).toBe(400);
+  });
+
+  it('PATCH: i materiali sono un REPLACE, quindi rimandarli senza codice lo azzera', async () => {
+    const creato = await creaConMateriale({ name: 'Morsetto', quantity: '5', unit: 'pz', code: 'MO-9' });
+    expect(creato.status).toBe(201);
+    const id = creato.body.timeLogs[0].id;
+
+    // Stesso materiale con il codice: sopravvive alla modifica di un altro campo solo
+    // perché viene rimandato: l'update sostituisce l'intera lista, non la fonde.
+    const conCodice = await request(app)
+      .patch(`/api/v1/time-logs/${id}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ materials: [{ name: 'Morsetto', quantity: '6', unit: 'pz', code: 'MO-9' }] });
+    expect(conCodice.status).toBe(200);
+    expect(conCodice.body.timeLog.materials[0].code).toBe('MO-9');
+
+    const senzaCodice = await request(app)
+      .patch(`/api/v1/time-logs/${id}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ materials: [{ name: 'Morsetto', quantity: '6', unit: 'pz' }] });
+    expect(senzaCodice.status).toBe(200);
+    expect(senzaCodice.body.timeLog.materials[0].code).toBeNull();
+  });
+});
+
 describe('Split automatico ordinario -> notturno / straordinario', () => {
   it('ore diurne sotto il tetto di 8h: nessuno split, una sola riga', async () => {
     const res = await request(app)

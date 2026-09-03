@@ -163,6 +163,7 @@ export default function CantieriPage() {
 function NewProjectForm({ tipoCommessa, onCreated }: { tipoCommessa: ProjectTipoCommessa; onCreated: () => void }) {
   const [name, setName] = useState('');
   const [code, setCode] = useState('');
+  const [address, setAddress] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -171,9 +172,13 @@ function NewProjectForm({ tipoCommessa, onCreated }: { tipoCommessa: ProjectTipo
     setError(null);
     setBusy(true);
     try {
-      await api.createProject({ name, code: code.trim() || null, tipoCommessa });
+      // `|| null` e non `|| undefined`, come già per il codice: un campo lasciato bianco
+      // vale "nessun indirizzo", non "non l'ho toccato" — sul rapportino la differenza è
+      // fra stampare il trattino e non sapere cosa stampare.
+      await api.createProject({ name, code: code.trim() || null, address: address.trim() || null, tipoCommessa });
       setName('');
       setCode('');
+      setAddress('');
       onCreated();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Errore creazione cantiere');
@@ -207,6 +212,16 @@ function NewProjectForm({ tipoCommessa, onCreated }: { tipoCommessa: ProjectTipo
         value={code}
         onChange={(e) => setCode(e.target.value)}
         maxLength={50}
+      />
+      {/* maxLength allineato al tetto dello schema Zod del backend (addressSchema, 500):
+          il limite si vede mentre si scrive invece di arrivare come errore dopo il salva. */}
+      <Input
+        id="cantiere-indirizzo"
+        label="Indirizzo del cantiere (facoltativo)"
+        placeholder="es. Via Roma 12, Milano — la Destinazione sul rapportino"
+        value={address}
+        onChange={(e) => setAddress(e.target.value)}
+        maxLength={500}
       />
       <Button type="submit" variant="primary" fullWidth loading={busy}>
         Crea cantiere

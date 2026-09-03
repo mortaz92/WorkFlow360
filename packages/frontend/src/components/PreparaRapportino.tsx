@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
-import type { Project, RapportinoSnapshot, TimeLogTipo } from '../lib/types';
-import { badgeClassForTipo, etichettaCantiere, formatDate, formatHours } from '../lib/format';
+import type { Project, RapportinoSnapshot } from '../lib/types';
+import { etichettaCantiere } from '../lib/format';
 import { DocumentIcon } from './icons';
+import FoglioRapportino from './rapportino/FoglioRapportino';
 import { Button, Card, CardContent, CardHeader, CardTitle, EmptyState, Input, Select, type SelectOption } from './ui';
 
 // Stesse classi ricorrenti già duplicate in OperaioPage/FirmaPage/RapportiniCantiere:
@@ -13,11 +14,6 @@ const ALERT_ERRORE =
   'rounded-lg border border-danger-200 bg-danger-50 px-3 py-2.5 text-sm font-medium text-danger-600 dark:border-danger-800 dark:bg-danger-900/30 dark:text-danger-400';
 
 const TESTO_ATTENUATO = 'text-sm text-surface-500 dark:text-surface-400';
-
-const ELENCO = 'm-0 flex list-none flex-col gap-2 p-0';
-
-const RIGA_ELENCO =
-  'rounded-lg border border-surface-200 bg-white p-3 transition-shadow hover:shadow-card dark:border-surface-700 dark:bg-surface-800';
 
 // Data in fuso LOCALE, non UTC (stessa ragione di isoDate in OperaioPage.tsx:
 // toISOString() sposterebbe il giorno tra mezzanotte e le 1-2 di notte in Italia).
@@ -163,64 +159,22 @@ export default function PreparaRapportino({ projectId, projects, returnTo }: Pre
 
           {previewLoading && <p className={TESTO_ATTENUATO}>Caricamento anteprima…</p>}
 
-          {!previewLoading && preview && (
-            <div className="flex flex-col gap-3 rounded-lg border border-surface-200 bg-surface-50 p-3 dark:border-surface-700 dark:bg-surface-900/50">
-              <div className="flex items-center justify-between gap-2">
-                <strong className="text-surface-900 dark:text-surface-100">{preview.cantiere.nome}</strong>
-                <span className={TESTO_ATTENUATO}>{formatDate(preview.date)}</span>
-              </div>
+          {/* Niente ore, niente documento: mostrare il foglio vuoto farebbe credere che ci
+              sia qualcosa da far firmare. Il messaggio dice cosa manca, il foglio no. */}
+          {!previewLoading && preview && preview.righe.length === 0 && (
+            <p className={TESTO_ATTENUATO}>
+              Nessuna ora registrata su questo cantiere in questa data: non c'è ancora niente da far firmare.
+            </p>
+          )}
 
-              {preview.righe.length === 0 ? (
-                <p className={TESTO_ATTENUATO}>
-                  Nessuna ora registrata su questo cantiere in questa data: non c'è ancora niente da far firmare.
-                </p>
-              ) : (
-                <>
-                  <ul className={ELENCO}>
-                    {preview.righe.map((riga) => (
-                      <li key={riga.timeLogId} className={`${RIGA_ELENCO} flex flex-col gap-1`}>
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="font-medium text-surface-900 dark:text-surface-100">
-                            {riga.operaio.nome} · {riga.lavoro.titolo}
-                          </span>
-                          <span className={badgeClassForTipo(riga.tipo as TimeLogTipo)}>
-                            {riga.tipo} {formatHours(riga.ore)}h
-                          </span>
-                        </div>
-                        {(riga.oraInizio || riga.oraFine) && (
-                          <span className={TESTO_ATTENUATO}>
-                            {riga.oraInizio ? `dalle ${riga.oraInizio.slice(0, 5)}` : ''}
-                            {riga.oraFine ? ` alle ${riga.oraFine.slice(0, 5)}` : ''}
-                          </span>
-                        )}
-                        {riga.descrizioneLavoro && <span className={TESTO_ATTENUATO}>{riga.descrizioneLavoro}</span>}
-                        {riga.materiali.length > 0 && (
-                          <span className={TESTO_ATTENUATO}>
-                            {riga.materiali.map((m) => `${m.nome} ${m.quantita}${m.unita}`).join(', ')}
-                          </span>
-                        )}
-                      </li>
-                    ))}
-                  </ul>
-
-                  <div className="flex flex-wrap items-center gap-2 border-t border-surface-200 pt-3 dark:border-surface-700">
-                    <span className="text-sm font-semibold text-surface-900 dark:text-surface-100">
-                      Totale {formatHours(preview.totali.oreTotali)}h
-                    </span>
-                    {Object.entries(preview.totali.perTipo).map(([tipo, ore]) => (
-                      <span key={tipo} className={badgeClassForTipo(tipo as TimeLogTipo)}>
-                        {tipo} {formatHours(ore)}h
-                      </span>
-                    ))}
-                  </div>
-                  {preview.totali.materiali.length > 0 && (
-                    <p className={TESTO_ATTENUATO}>
-                      Materiali: {preview.totali.materiali.map((m) => `${m.nome} ${m.quantita}${m.unita}`).join(', ')}
-                    </p>
-                  )}
-                </>
-              )}
-            </div>
+          {/* Lo STESSO foglio che vedrà il cliente in FirmaPage: l'anteprima serve a
+              controllare prima di passare il telefono, e una resa diversa da quella finale
+              non permetterebbe di controllare niente.
+              numero={null}: il progressivo lo assegna il server alla creazione, qui il
+              rapportino non esiste ancora — mostrarne uno "previsto" sarebbe un numero
+              inventato su un documento da firmare. */}
+          {!previewLoading && preview && preview.righe.length > 0 && (
+            <FoglioRapportino snapshot={preview} numero={null} />
           )}
 
           <Button

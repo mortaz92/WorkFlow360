@@ -132,13 +132,22 @@ export const api = {
   // numero, stato) indipendentemente da chi può vedere anche le statistiche.
   getProjectById: (id: string) =>
     request<{ project: import('./types').Project }>(`/projects/${id}`),
-  createProject: (body: { name: string; code?: string | null; tipoCommessa?: import('./types').ProjectTipoCommessa }) =>
-    request<{ project: import('./types').Project }>('/projects', { method: 'POST', body }),
+  // `address` è la "Destinazione" del rapportino. Dichiarato qui e non solo lato server
+  // perché il body è tipizzato: un campo non dichiarato non darebbe errore di rete, lo
+  // scarterebbe TypeScript prima ancora di inviarlo — cioè il campo scritto dall'admin
+  // sparirebbe in silenzio, senza nessun messaggio da mostrare.
+  createProject: (body: {
+    name: string;
+    code?: string | null;
+    address?: string | null;
+    tipoCommessa?: import('./types').ProjectTipoCommessa;
+  }) => request<{ project: import('./types').Project }>('/projects', { method: 'POST', body }),
   updateProject: (
     id: string,
     body: {
       name?: string;
       code?: string | null;
+      address?: string | null;
       tipoCommessa?: import('./types').ProjectTipoCommessa;
       status?: import('./types').ProjectStatus;
     },

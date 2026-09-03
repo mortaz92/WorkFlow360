@@ -1,6 +1,10 @@
 export interface TimeLogMaterial {
   id: string;
   name: string;
+  // Codice articolo scritto dall'operaio (colonna CODICE del blocco cartaceo).
+  // Facoltativo: null quando non è stato scritto, mai stringa vuota (vedi il transform
+  // in timeLogs.routes.ts).
+  code: string | null;
   quantity: string; // numeric restituito come stringa da Postgres
   unit: string;
 }
@@ -24,6 +28,7 @@ export interface CreateMaterialInput {
   name: string;
   quantity: string; // decimal come stringa, validato nello schema Zod
   unit?: string;
+  code?: string | null;
 }
 
 export interface CreateTimeLogInput {

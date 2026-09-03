@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import { api } from '../lib/api';
 import type { ProjectTimelineEntry } from '../lib/types';
-import { badgeClassForTipo, formatDate, formatHours, TIPI_ORDER } from '../lib/format';
+import { badgeClassForTipo, formatDate, formatHours, formatQuantita, TIPI_ORDER } from '../lib/format';
 import { groupTimelineByDayUserTask } from '../lib/groupTimeLogs';
 import TimeLogEditForm from './TimeLogEditForm';
 import { Button, Card, CardContent, CardHeader, CardTitle, EmptyState } from './ui';
@@ -135,7 +135,13 @@ export default function RegistroCantiere({ projectId }: { projectId: string }) {
                         </td>
                         <td className={CELLA_EVIDENZIATA}>{formatHours(g.totalHours)}</td>
                         <td className={CELLA_ATTENUATA}>
-                          {g.materials.length > 0 ? g.materials.map((m) => `${m.name} ${m.quantity}${m.unit}`).join(', ') : '—'}
+                          {/* formatQuantita come nel foglio del rapportino e nello storico
+                              dell'operaio: `quantity` arriva grezza dall'API ("12.000"), e
+                              lo stesso materiale non può leggersi in due modi diversi a
+                              seconda della schermata da cui lo si guarda. */}
+                          {g.materials.length > 0
+                            ? g.materials.map((m) => `${m.name} ${formatQuantita(m.quantity)}${m.unit}`).join(', ')
+                            : '—'}
                         </td>
                         <td className="px-4 py-3 text-right no-print">
                           <Button

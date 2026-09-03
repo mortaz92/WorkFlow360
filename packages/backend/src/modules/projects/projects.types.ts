@@ -11,6 +11,14 @@ export interface PublicProject {
   // formato automatico basato su projectNumber (vedi etichettaCantiere in format.ts).
   code: string | null;
   name: string;
+  // Committente del cantiere. Esiste in tabella dalla migrazione 0011 e viene già
+  // restituito a runtime (toPublicProject fa spread dell'intera riga): non era dichiarato
+  // qui, quindi il tipo mentiva su cosa contiene davvero la risposta.
+  clientName: string | null;
+  // Indirizzo del cantiere, la "Destinazione" del rapportino cartaceo: dove si è
+  // lavorato, che non coincide con la sede del committente. NULL per i cantieri creati
+  // prima di questo campo o senza indirizzo scritto.
+  address: string | null;
   description: string | null;
   status: 'pending' | 'in_progress' | 'completed' | 'blocked';
   tipoCommessa: ProjectTipoCommessa;
@@ -23,6 +31,7 @@ export interface PublicProject {
 export interface CreateProjectInput {
   name: string;
   code?: string | null;
+  address?: string | null;
   description?: string;
   status?: 'pending' | 'in_progress' | 'completed' | 'blocked';
   tipoCommessa?: ProjectTipoCommessa;
@@ -34,6 +43,7 @@ export interface CreateProjectInput {
 export interface UpdateProjectInput {
   name?: string;
   code?: string | null;
+  address?: string | null;
   description?: string | null;
   status?: 'pending' | 'in_progress' | 'completed' | 'blocked';
   tipoCommessa?: ProjectTipoCommessa;

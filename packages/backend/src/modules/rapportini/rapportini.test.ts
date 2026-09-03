@@ -1,7 +1,8 @@
+import zlib from 'node:zlib';
 import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from 'vitest';
 import request from 'supertest';
 import bcrypt from 'bcrypt';
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, eq, sql } from 'drizzle-orm';
 
 // L'invio email è sostituito da un doppio, e non per comodità: le asserzioni su
 // `emailInviata === false` altrimenti dipenderebbero dall'ASSENZA di RESEND_API_KEY
@@ -16,7 +17,7 @@ vi.mock('../../core/mail', () => ({
 
 import { createApp } from '../../app';
 import { db } from '../../core/db';
-import { auditLog, companies, projects, rapportini, tasks, timeLogs, users } from '../../core/db/schema';
+import { auditLog, companies, projects, rapportini, tasks, timeLogMaterials, timeLogs, users } from '../../core/db/schema';
 import { isUniqueViolation, uniqueViolationConstraint } from '../../core/db/isUniqueViolation';
 import { sendEmail } from '../../core/mail';
 import { signAccessToken } from '../auth/auth.service';
@@ -48,6 +49,25 @@ function chunkIhdr(larghezza: number, altezza: number): Buffer {
   return Buffer.concat([lunghezza, Buffer.from('IHDR', 'ascii'), dati, Buffer.alloc(4)]);
 }
 
+// Chunk generico: 4 byte di lunghezza, 4 di tipo, i dati, 4 di CRC. Il CRC è finto
+// (zeri) ed è deliberato: png-js NON verifica i CRC, quindi un PNG con CRC sbagliati
+// arriva comunque fino alla decompressione — che è esattamente il punto del test qui
+// sotto. Un CRC vero non cambierebbe nulla e nasconderebbe questo fatto.
+function chunkPng(tipo: string, dati: Buffer): Buffer {
+  const lunghezza = Buffer.alloc(4);
+  lunghezza.writeUInt32BE(dati.length, 0);
+  return Buffer.concat([lunghezza, Buffer.from(tipo, 'ascii'), dati, Buffer.alloc(4)]);
+}
+
+// IDAT VERO: i byte di un'immagine RGBA tutta trasparente, filtro 0 su ogni riga (un byte
+// di filtro + larghezza × 4 byte di pixel), compressi con zlib come vuole il formato. È
+// l'unico modo di costruire un PNG che si decomprima davvero — serve ai test che devono
+// superare la validazione per arrivare a misurare altro (il limite del body parser).
+function chunkIdatValido(larghezza: number, altezza: number): Buffer {
+  const grezzi = Buffer.alloc(altezza * (1 + larghezza * 4));
+  return chunkPng('IDAT', zlib.deflateSync(grezzi));
+}
+
 function dataUriPng(...parti: Buffer[]): string {
   return `data:image/png;base64,${Buffer.concat([PNG_MAGIC, ...parti]).toString('base64')}`;
 }
@@ -57,6 +77,23 @@ function dataUriPng(...parti: Buffer[]): string {
 // ("Incomplete or corrupt PNG file"). È esattamente la firma che, prima della correzione,
 // faceva fallire la generazione del PDF DOPO che la firma era già stata registrata.
 const FIRMA_PNG_CORROTTA = dataUriPng(chunkIhdr(100, 50));
+
+// L'ALTRO PNG rotto, quello che faceva TERMINARE IL PROCESSO. Struttura completa e
+// credibile — magic, IHDR 2×2 a 8 bit di tipo colore 6 (RGBA, quello che produce il
+// canvas della firma), IDAT, IEND — ma con quattro byte di spazzatura al posto dei dati
+// compressi. Supera prefisso, base64, byte magici, IHDR e limiti di dimensione: png-js
+// non verifica i CRC e non si accorge di nulla, e l'errore arriva da zlib.inflate DENTRO
+// la sua callback asincrona, dove nessun try/catch sincrono può prenderlo. Riprodotto dal
+// vivo: "ESITO: NON CATTURABILE — eccezione non gestita: incorrect header check", e il
+// processo sopravviveva solo perché il test aveva registrato apposta un
+// process.on('uncaughtException') che in produzione non esisteva.
+// Caso DIVERSO da FIRMA_PNG_CORROTTA qui sopra, che non ha nessun IDAT e fallisce in modo
+// sincrono dentro png-js: quello era già gestito, questo no.
+const FIRMA_PNG_IDAT_ILLEGGIBILE = dataUriPng(
+  chunkIhdr(2, 2),
+  chunkPng('IDAT', Buffer.from([0xde, 0xad, 0xbe, 0xef])),
+  chunkPng('IEND', Buffer.alloc(0)),
+);
 
 const DATA_LAVORI = '2026-09-01';
 const ALTRA_DATA = '2026-09-02';
@@ -74,6 +111,24 @@ const DATA_SCADENZA_PRESENTATA = '2026-09-15';
 const DATA_REINVIO = '2026-09-16';
 const DATA_INTEGRITA = '2026-09-17';
 const DATA_RACE_INVARIANTE = '2026-09-18';
+const DATA_NUMERO_PRIMO = '2026-10-01';
+const DATA_NUMERO_SECONDO = '2026-10-02';
+const DATA_NUMERO_ANNULLATO = '2026-10-03';
+const DATA_NUMERO_ELENCO = '2026-10-04';
+const DATE_NUMERO_CONCORRENTI = ['2026-10-06', '2026-10-07', '2026-10-08', '2026-10-09'];
+const DATA_DESTINAZIONE = '2026-10-11';
+const DATA_SENZA_DESTINAZIONE = '2026-10-12';
+const DATA_CODICI_RIGHE = '2026-10-13';
+const DATA_CODICI_AGGREGATO = '2026-10-14';
+const DATA_PDF_COMPLETO = '2026-10-15';
+const DATA_DEADLOCK = '2026-10-16';
+const DATA_PNG_ILLEGGIBILE = '2026-10-17';
+const DATA_EMAIL_ORE = '2026-10-18';
+
+// Numero fuori dalla sequenza reale, per le due insert dirette che DEVONO fallire su un
+// altro vincolo: riusare un numero già assegnato le farebbe fallire sull'UNIQUE del
+// progressivo, cioè su un vincolo diverso da quello che quei test vogliono dimostrare.
+const NUMERO_FUORI_SEQUENZA = 900001;
 
 let companyId: string;
 let adminId: string;
@@ -94,6 +149,18 @@ async function inserisciOre(date: string, userId: string, hours: string, task = 
     .values({ companyId, taskId: task, userId, tipo: 'ordinario', hoursWorked: hours, date, startTime: '08:00' })
     .returning();
   return row.id;
+}
+
+async function inserisciMateriale(
+  timeLogId: string,
+  nome: string,
+  quantita: string,
+  unita: string,
+  codice: string | null,
+): Promise<void> {
+  await db
+    .insert(timeLogMaterials)
+    .values({ companyId, timeLogId, name: nome, quantity: quantita, unit: unita, code: codice });
 }
 
 async function creaRapportino(token: string, date: string, project = projectId) {
@@ -129,6 +196,32 @@ function firma(token: string, corpo: Record<string, unknown> = {}, userAgent?: s
     firmaPng: FIRMA_PNG,
     ...corpo,
   });
+}
+
+/**
+ * Aspetta che almeno una connessione di questo database sia ferma ad attendere un lock.
+ *
+ * Serve a rendere DETERMINISTICO l'interleaving del test sul deadlock: senza, si potrebbe
+ * solo sperare che la creazione del rapportino abbia già raggiunto il suo `FOR UPDATE` su
+ * time_logs prima che la transazione pilotata a mano vada avanti — e un test che a volte
+ * riproduce lo scenario e a volte no non dimostra nulla, in nessuna delle due direzioni.
+ * Se l'attesa non si presenta entro il tetto, si ferma con un errore esplicito invece di
+ * proseguire e passare per il motivo sbagliato.
+ */
+async function attendiUnBackendInAttesaDiLock(timeoutMs = 5000): Promise<void> {
+  const scadenza = Date.now() + timeoutMs;
+  while (Date.now() < scadenza) {
+    const righe = await db.execute<{ n: number }>(
+      sql`select count(*)::int as n from pg_stat_activity
+          where datname = current_database() and wait_event_type = 'Lock'`,
+    );
+    if (Number(righe[0]?.n ?? 0) > 0) return;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error(
+    "Nessuna connessione si è messa in attesa di un lock entro il tetto: l'interleaving " +
+      'non è stato riprodotto e il test non starebbe dimostrando niente.',
+  );
 }
 
 async function leggiRapportino(id: string) {
@@ -243,7 +336,10 @@ describe('GET /api/v1/rapportini/anteprima', () => {
       .set('Authorization', `Bearer ${adminToken}`);
 
     expect(res.status).toBe(200);
-    expect(res.body.anteprima.versione).toBe(1);
+    // v2: la forma dello snapshot ha guadagnato l'indirizzo del cantiere e il codice dei
+    // materiali. Il valore atteso resta scritto per esteso (non `SNAPSHOT_VERSIONE`),
+    // altrimenti l'asserzione seguirebbe qualunque cambio invece di segnalarlo.
+    expect(res.body.anteprima.versione).toBe(2);
     expect(res.body.anteprima.azienda.nome).toBe('RapportiniTestCo');
     expect(res.body.anteprima.cantiere.clientName).toBe('Comune di Testville');
     expect(res.body.anteprima.righe).toHaveLength(1);
@@ -326,6 +422,7 @@ describe('POST /api/v1/rapportini', () => {
         projectId,
         date: DATA_LAVORI,
         revision: 99,
+        numero: NUMERO_FUORI_SEQUENZA,
         createdBy: adminId,
         snapshotJson: esistente.snapshotJson,
         snapshotHash: esistente.snapshotHash,
@@ -361,6 +458,7 @@ describe('POST /api/v1/rapportini', () => {
         projectId,
         date: DATA_LAVORI,
         revision: esistente.revision,
+        numero: NUMERO_FUORI_SEQUENZA + 1,
         status: 'annullato',
         createdBy: adminId,
         snapshotJson: esistente.snapshotJson,
@@ -703,6 +801,58 @@ describe('Validazione della firma PNG', () => {
     expect(res.status).toBe(400);
     expect(res.body.error.message).toContain('dimensione massima');
   });
+
+});
+
+// Prima della correzione, UNA sola richiesta di questo blocco faceva TERMINARE IL PROCESSO
+// backend: tutti i clienti giù. Il token usato è REALE e non inventato, ed è il punto —
+// con un token finto la richiesta verrebbe respinta con un 401 prima ancora di arrivare a
+// pdfkit, e il test passerebbe senza aver mai riprodotto niente. È anche esattamente
+// l'attacco: qualunque utente autenticato, foss'anche un operaio, crea un rapportino,
+// riceve il signingToken nella risposta e chiama la rotta pubblica di firma con questo
+// PNG. Il rate limiter non è un argine, perché conta in memoria (MemoryStore di
+// express-rate-limit, app.ts) e il riavvio gli azzera i contatori: il tetto di 20 firme
+// per quarto d'ora non limita il numero di cadute.
+describe('Firma con un PNG i cui dati compressi sono illeggibili (faceva cadere il processo)', () => {
+  let rapportinoId: string;
+  let signingToken: string;
+
+  beforeAll(async () => {
+    await inserisciOre(DATA_PNG_ILLEGGIBILE, operaioId, '6');
+    const creato = await creaRapportino(operaioToken, DATA_PNG_ILLEGGIBILE);
+    rapportinoId = creato.body.rapportino.id;
+    signingToken = creato.body.signingToken;
+  });
+
+  it('risponde 400, NON registra la firma e soprattutto NON fa cadere il processo', async () => {
+    const pidPrima = process.pid;
+
+    const res = await firma(signingToken, { firmaPng: FIRMA_PNG_IDAT_ILLEGGIBILE });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error.message).toContain('Impossibile elaborare la firma');
+
+    const row = await leggiRapportino(rapportinoId);
+    expect(row.status).toBe('in_firma');
+    expect(row.signaturePng).toBeNull();
+
+    // Senza la correzione qui non ci si arriverebbe nemmeno: l'eccezione non gestita
+    // lanciata dentro la callback di zlib avrebbe già chiuso il processo (nel test, il
+    // worker di vitest). Il controllo sul pid e la chiamata di health dicono che il
+    // processo è LO STESSO e che risponde ancora.
+    expect(process.pid).toBe(pidPrima);
+    const dopo = await request(app).get('/api/v1/health');
+    expect(dopo.status).toBe(200);
+  });
+
+  it('il token NON è stato consumato: il cliente rifirma subito con una firma buona', async () => {
+    const res = await firma(signingToken, { firmatarioNome: 'Cliente Dopo PNG Rotto' });
+    expect(res.status).toBe(200);
+
+    const row = await leggiRapportino(rapportinoId);
+    expect(row.status).toBe('firmato');
+    expect(row.signerName).toBe('Cliente Dopo PNG Rotto');
+  });
 });
 
 // Il caso che ha motivato lo spostamento della generazione del PDF PRIMA del commit.
@@ -773,6 +923,26 @@ describe("Iniezione HTML nell'email del rapportino firmato", () => {
     expect(html).not.toContain('<script>');
     expect(html).toContain('&lt;script&gt;');
     expect(html).toContain('&quot;xss&quot;');
+  });
+
+  // L'email è l'unica delle tre rese del documento che al cliente resta in casella: il PDF
+  // allegato e il foglio che ha firmato a schermo scrivono entrambi "7,5", mentre qui
+  // compariva "7.50", preso di peso dallo snapshot (dove le ore stanno come le restituisce
+  // Postgres). Lo stesso numero scritto in tre modi mette chi legge nella posizione di
+  // dover verificare che sia davvero lo stesso numero.
+  it('le ore totali sono scritte come sul documento ("7,5"), non come le tiene il database ("7.50")', async () => {
+    await inserisciOre(DATA_EMAIL_ORE, operaioId, '7.5');
+    const creato = await creaRapportino(operaioToken, DATA_EMAIL_ORE);
+    expect(creato.status).toBe(201);
+    // Nello snapshot il valore grezzo RESTA: è la memoria del documento e non deve
+    // cambiare. A cambiare è solo il modo in cui lo si scrive a chi lo legge.
+    expect(creato.body.rapportino.snapshot.totali.oreTotali).toBe('7.50');
+
+    expect((await firma(creato.body.signingToken)).status).toBe(200);
+
+    const html = sendEmailMock.mock.calls[0][0].html ?? '';
+    expect(html).toContain('<strong>7,5</strong>');
+    expect(html).not.toContain('7.50');
   });
 });
 
@@ -886,10 +1056,19 @@ describe('Stato presentato di un rapportino scaduto ma ancora scritto "in_firma"
 });
 
 describe('Limite di dimensione del corpo sulla rotta di firma', () => {
-  // PNG "grande" ma STRUTTURALMENTE valido (header IHDR corretto + riempimento): supera
-  // la validazione di forma e serve solo a misurare il body parser — la richiesta viene
-  // poi respinta dal token inesistente, quindi non arriva mai al generatore PDF.
-  const pngGrande = dataUriPng(chunkIhdr(100, 50), Buffer.alloc(200 * 1024));
+  // PNG grande ma DAVVERO decodificabile: IHDR + un chunk ausiliario ignorato da qualunque
+  // decodificatore (è lì solo a fare peso) + un IDAT vero + IEND. Il riempimento sta in un
+  // chunk e non sciolto in coda perché la validazione ora decomprime i dati immagine per
+  // davvero (vedi firmaPng.ts, correzione del PNG che faceva cadere il processo): 200KB di
+  // zeri buttati dopo l'IHDR non sono un PNG, verrebbero respinti con un 400 e questo test
+  // misurerebbe la validazione invece del body parser, che è ciò che gli interessa.
+  // La richiesta viene poi respinta per il token inesistente, quindi non arriva mai al PDF.
+  const pngGrande = dataUriPng(
+    chunkIhdr(100, 50),
+    chunkPng('zzZz', Buffer.alloc(200 * 1024)),
+    chunkIdatValido(100, 50),
+    chunkPng('IEND', Buffer.alloc(0)),
+  );
 
   it('accetta un corpo oltre i 100KB di default (il parser da 1mb è montato prima di quello globale)', async () => {
     const res = await firma('token-inesistente-per-il-test-di-dimensione', { firmaPng: pngGrande });
@@ -1323,6 +1502,57 @@ describe('Concorrenza reale', () => {
       expect(bloccate.map((r) => r.id).sort()).toEqual(idNelloSnapshot);
     }
   });
+
+  // Il deadlock che questo test riproduce è stato osservato dal vivo su Postgres reale:
+  //   ERROR: deadlock detected
+  //   CONTEXT: while locking tuple in relation "companies"
+  //   SQL statement "SELECT 1 FROM ONLY "public"."companies" x WHERE "id" = $1
+  //                  FOR KEY SHARE OF x"
+  // Meccanismo: createRapportino prendeva `companies FOR UPDATE` come PRIMA istruzione e
+  // poi aspettava le righe di time_logs; updateTimeLog tiene la riga di time_logs e,
+  // inserendo in time_log_materials, fa scattare il controllo della foreign key verso
+  // companies, che prende FOR KEY SHARE — e FOR KEY SHARE confligge con FOR UPDATE.
+  // Ciclo chiuso. La correzione è l'ordine dei lock dichiarato in createRapportino
+  // (projects -> time_logs -> companies): companies è ora l'ULTIMO lock.
+  //
+  // L'interleaving NON è affidato al caso (due richieste HTTP in parallelo lo colgono solo
+  // per fortuna, ed è il motivo per cui 287 test verdi convivevano col difetto): qui la
+  // transazione della PATCH è pilotata a mano, un'istruzione alla volta, e la creazione
+  // parte solo dopo che la riga delle ore è già bloccata.
+  it('creazione del rapportino e modifica delle ore con materiali non si bloccano a vicenda (deadlock companies/time_logs)', async () => {
+    const timeLogId = await inserisciOre(DATA_DEADLOCK, operaioId, '6');
+
+    let creazione: ReturnType<typeof creaRapportino> | undefined;
+    let erroreDellaPatch: unknown;
+    try {
+      await db.transaction(async (tx) => {
+        // 1. La PATCH prende la riga delle ore: è la prima istruzione di updateTimeLog.
+        await tx.select({ id: timeLogs.id }).from(timeLogs).where(eq(timeLogs.id, timeLogId)).for('update');
+
+        // 2. La creazione parte adesso e va a sbattere su quella riga bloccata.
+        creazione = creaRapportino(operaioToken, DATA_DEADLOCK);
+        await attendiUnBackendInAttesaDiLock();
+
+        // 3. La PATCH inserisce i materiali: la FK di time_log_materials verso companies
+        //    chiede FOR KEY SHARE sulla riga dell'azienda. Prima della correzione era qui
+        //    che Postgres rispondeva "deadlock detected".
+        await tx
+          .insert(timeLogMaterials)
+          .values({ companyId, timeLogId, name: 'Cavo', quantity: '12.000', unit: 'm', code: null });
+      });
+    } catch (err) {
+      erroreDellaPatch = err;
+    }
+
+    // La creazione viene sempre attesa, anche se la PATCH è fallita: lasciarla pendente
+    // significherebbe una promise non gestita e una connessione ancora occupata.
+    const esitoCreazione = creazione ? await creazione : undefined;
+
+    // Messaggio per esteso e non un toBeUndefined(): quando fallisce, il testo del
+    // deadlock è l'informazione che serve a chi legge il rapporto dei test.
+    expect(erroreDellaPatch ? String(erroreDellaPatch) : null).toBeNull();
+    expect(esitoCreazione?.status).toBe(201);
+  });
 });
 
 describe('Rilevamento della modifica concorrente (il confronto fra i due snapshot)', () => {
@@ -1396,6 +1626,10 @@ describe('Isolamento multi-tenant', () => {
     rapportinoAltruiVisibile = esito.rapportinoId;
   });
 
+  // Questa azienda resta deliberatamente SENZA rapportini propri: il test dell'elenco qui
+  // sotto pretende una lista vuota, ed è l'unico modo di dimostrare che non vede quelli
+  // dell'altra azienda. La verifica del progressivo per azienda vive quindi in un blocco
+  // a parte, con un'azienda tutta sua.
   afterAll(async () => {
     await db.delete(users).where(eq(users.companyId, altraCompanyId)).catch(() => {});
     await db.delete(companies).where(eq(companies.id, altraCompanyId)).catch(() => {});
@@ -1446,5 +1680,447 @@ describe('Isolamento multi-tenant', () => {
     expect(dopo.unlockedAt).toBeNull();
     expect(dopo.cancelReason).toBeNull();
     expect(dopo.signerEmail).toBe(prima.signerEmail);
+  });
+});
+
+// Il numero è progressivo PER AZIENDA ed è quindi CONDIVISO da tutti i test di questo
+// file, che lavorano su una sola azienda: le asserzioni qui sono sempre RELATIVE
+// ("il secondo vale il primo più uno"), mai assolute. Un `=== 1` diventerebbe falso il
+// giorno in cui qualcuno aggiunge un test che crea un rapportino più in alto nel file.
+describe('N° progressivo del rapportino', () => {
+  it('ogni rapportino nasce con un numero, e due creazioni consecutive danno n e n+1', async () => {
+    await inserisciOre(DATA_NUMERO_PRIMO, operaioId, '5');
+    const primo = await creaRapportino(operaioToken, DATA_NUMERO_PRIMO);
+    expect(primo.status).toBe(201);
+    expect(typeof primo.body.rapportino.numero).toBe('number');
+
+    await inserisciOre(DATA_NUMERO_SECONDO, operaioId, '5');
+    const secondo = await creaRapportino(operaioToken, DATA_NUMERO_SECONDO);
+    expect(secondo.status).toBe(201);
+    expect(secondo.body.rapportino.numero).toBe(primo.body.rapportino.numero + 1);
+  });
+
+  it('un rapportino annullato CONSUMA il suo numero: il successivo non lo riusa', async () => {
+    await inserisciOre(DATA_NUMERO_ANNULLATO, operaioId, '5');
+    const primo = await creaRapportino(operaioToken, DATA_NUMERO_ANNULLATO);
+    expect(primo.status).toBe(201);
+    const numeroAnnullato: number = primo.body.rapportino.numero;
+
+    const annulla = await request(app)
+      .post(`/api/v1/rapportini/${primo.body.rapportino.id}/annulla`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ reason: 'Cliente assente' });
+    expect(annulla.status).toBe(200);
+
+    // Stesso cantiere e stesso giorno: è la revisione 2 di quel giorno, ma un numero
+    // NUOVO nella numerazione dell'azienda — come una pagina strappata dal blocco, che
+    // non torna disponibile.
+    const secondo = await creaRapportino(operaioToken, DATA_NUMERO_ANNULLATO);
+    expect(secondo.status).toBe(201);
+    expect(secondo.body.rapportino.revision).toBe(2);
+    expect(secondo.body.rapportino.numero).toBe(numeroAnnullato + 1);
+
+    const riga = await leggiRapportino(primo.body.rapportino.id);
+    expect(riga.numero).toBe(numeroAnnullato);
+    expect(riga.status).toBe('annullato');
+  });
+
+  it("il numero compare anche nell'ELENCO, che ha una proiezione di colonne scritta a mano", async () => {
+    await inserisciOre(DATA_NUMERO_ELENCO, operaioId, '5');
+    const creato = await creaRapportino(operaioToken, DATA_NUMERO_ELENCO);
+    expect(creato.status).toBe(201);
+
+    const elenco = await request(app)
+      .get(`/api/v1/rapportini?date=${DATA_NUMERO_ELENCO}`)
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(elenco.status).toBe(200);
+
+    // listRapportini elenca le colonne una per una (per non trascinare snapshot e firma
+    // in ogni riga dell'elenco): una colonna nuova va aggiunta a mano lì, e dimenticarla
+    // non produce nessun errore — solo un campo `undefined` nella risposta.
+    const riga = elenco.body.rapportini.find((r: { id: string }) => r.id === creato.body.rapportino.id);
+    expect(riga).toBeDefined();
+    expect(riga.numero).toBe(creato.body.rapportino.numero);
+  });
+
+  it('N creazioni simultanee nella stessa azienda: nessun numero duplicato e nessun buco', async () => {
+    // Giorni DIVERSI, a differenza del test di concorrenza sullo stesso cantiere/giorno
+    // (dove per costruzione ne passa una sola): qui devono riuscire TUTTE, ed è l'unico
+    // modo di mettere alla prova il calcolo di MAX(numero)+1 sotto contesa reale.
+    for (const data of DATE_NUMERO_CONCORRENTI) {
+      await inserisciOre(data, operaioId, '5');
+    }
+
+    const esiti = await Promise.all(DATE_NUMERO_CONCORRENTI.map((data) => creaRapportino(operaioToken, data)));
+    expect(esiti.map((r) => r.status)).toEqual([201, 201, 201, 201]);
+
+    const numeri: number[] = esiti.map((r) => r.body.rapportino.numero);
+    expect(new Set(numeri).size).toBe(DATE_NUMERO_CONCORRENTI.length);
+    const ordinati = [...numeri].sort((a, b) => a - b);
+    for (let i = 1; i < ordinati.length; i++) {
+      expect(ordinati[i]).toBe(ordinati[i - 1] + 1);
+    }
+  });
+});
+
+// Azienda tutta sua, e non quella del blocco "Isolamento multi-tenant": là l'azienda deve
+// restare senza rapportini propri, perché un test pretende che il suo elenco sia VUOTO.
+describe('Il progressivo è per azienda, non globale', () => {
+  let terzaCompanyId: string;
+  let terzoAdminToken: string;
+  let terzoProjectId: string;
+
+  beforeAll(async () => {
+    const passwordHash = await bcrypt.hash('TestPassword123!', BCRYPT_TEST_COST);
+    const [company] = await db.insert(companies).values({ name: 'TerzaCoRapportini' }).returning();
+    terzaCompanyId = company.id;
+    const [admin] = await db
+      .insert(users)
+      .values({ email: 'rapportini-terzo-admin@workflow360.local', passwordHash, name: 'Admin Terzo', role: 'admin', companyId: terzaCompanyId })
+      .returning();
+    terzoAdminToken = signAccessToken({ id: admin.id, email: admin.email, role: 'admin', companyId: terzaCompanyId });
+
+    const [project] = await db
+      .insert(projects)
+      .values({ name: 'Cantiere Terza', companyId: terzaCompanyId, projectNumber: 1, tipoCommessa: 'consuntivo' })
+      .returning();
+    const [task] = await db
+      .insert(tasks)
+      .values({ projectId: project.id, title: 'Lavoro terzo', companyId: terzaCompanyId })
+      .returning();
+    await db.insert(timeLogs).values({
+      companyId: terzaCompanyId,
+      taskId: task.id,
+      userId: admin.id,
+      tipo: 'ordinario',
+      hoursWorked: '5',
+      date: DATA_LAVORI,
+      startTime: '08:00',
+    });
+    terzoProjectId = project.id;
+  });
+
+  // Ordine obbligato dalle foreign key, lo stesso dell'afterAll principale: rapportini ha
+  // RESTRICT verso projects e users e va quindi svuotata per prima.
+  afterAll(async () => {
+    await db.delete(rapportini).where(eq(rapportini.companyId, terzaCompanyId)).catch(() => {});
+    await db.delete(timeLogs).where(eq(timeLogs.companyId, terzaCompanyId)).catch(() => {});
+    await db.delete(tasks).where(eq(tasks.companyId, terzaCompanyId)).catch(() => {});
+    await db.delete(projects).where(eq(projects.companyId, terzaCompanyId)).catch(() => {});
+    await db.delete(users).where(eq(users.companyId, terzaCompanyId)).catch(() => {});
+    await db.delete(companies).where(eq(companies.id, terzaCompanyId)).catch(() => {});
+  });
+
+  it("il primo rapportino di un'azienda nuova parte da 1, non dal seguito della numerazione altrui", async () => {
+    const res = await request(app)
+      .post('/api/v1/rapportini')
+      .set('Authorization', `Bearer ${terzoAdminToken}`)
+      .send({ projectId: terzoProjectId, date: DATA_LAVORI });
+
+    expect(res.status).toBe(201);
+    // Asserzione ASSOLUTA, e qui si può: è l'unico rapportino di questa azienda. Altrove
+    // nel file i numeri sono condivisi da tutti i test e si confrontano solo differenze.
+    expect(res.body.rapportino.numero).toBe(1);
+  });
+});
+
+describe('Destinazione del cantiere e codice dei materiali', () => {
+  let projectDestinazioneId: string;
+  let taskDestinazioneId: string;
+  let aggregato: { nome: string; quantita: string; unita: string; codice: string | null }[];
+
+  beforeAll(async () => {
+    const [project] = await db
+      .insert(projects)
+      .values({
+        name: 'Cantiere con Destinazione',
+        companyId,
+        projectNumber: 3,
+        code: 'RAP-DEST',
+        tipoCommessa: 'consuntivo',
+        clientName: 'Cinema Arena',
+        address: 'Via delle Prove 42, Testville',
+      })
+      .returning();
+    projectDestinazioneId = project.id;
+    const [task] = await db
+      .insert(tasks)
+      .values({ projectId: projectDestinazioneId, title: 'Impianto elettrico', companyId })
+      .returning();
+    taskDestinazioneId = task.id;
+
+    // Un solo rapportino che contiene tutti e tre i casi di aggregazione: stesso codice,
+    // codici diversi, uno col codice e uno senza.
+    const timeLogId = await inserisciOre(DATA_CODICI_AGGREGATO, operaioId, '6', taskDestinazioneId);
+    await inserisciMateriale(timeLogId, 'Cavo', '3', 'm', 'C-1');
+    await inserisciMateriale(timeLogId, 'Cavo', '2', 'm', 'C-1');
+    await inserisciMateriale(timeLogId, 'Tubo', '1', 'pz', 'T-1');
+    await inserisciMateriale(timeLogId, 'Tubo', '1', 'pz', 'T-2');
+    await inserisciMateriale(timeLogId, 'Vite', '4', 'pz', null);
+    await inserisciMateriale(timeLogId, 'Vite', '4', 'pz', 'V-1');
+
+    const creato = await creaRapportino(operaioToken, DATA_CODICI_AGGREGATO, projectDestinazioneId);
+    expect(creato.status).toBe(201);
+    aggregato = (creato.body.rapportino.snapshot as RapportinoSnapshot).totali.materiali as typeof aggregato;
+  });
+
+  it("l'indirizzo del cantiere finisce nello snapshot come `cantiere.indirizzo`", async () => {
+    await inserisciOre(DATA_DESTINAZIONE, operaioId, '4', taskDestinazioneId);
+    const res = await request(app)
+      .get(`/api/v1/rapportini/anteprima?projectId=${projectDestinazioneId}&date=${DATA_DESTINAZIONE}`)
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.anteprima.cantiere.indirizzo).toBe('Via delle Prove 42, Testville');
+  });
+
+  it('un cantiere senza indirizzo dà `indirizzo: null`, non una chiave assente', async () => {
+    await inserisciOre(DATA_SENZA_DESTINAZIONE, operaioId, '4');
+    const res = await request(app)
+      .get(`/api/v1/rapportini/anteprima?projectId=${projectId}&date=${DATA_SENZA_DESTINAZIONE}`)
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(res.status).toBe(200);
+    // La chiave DEVE esserci: valorizzarla sempre, anche a null, è ciò che tiene una sola
+    // forma di JSON per tutti i documenti nuovi — e quindi un hash calcolato su una
+    // struttura sola.
+    expect(res.body.anteprima.cantiere).toHaveProperty('indirizzo');
+    expect(res.body.anteprima.cantiere.indirizzo).toBeNull();
+  });
+
+  it('il codice del materiale finisce nella riga dello snapshot', async () => {
+    const timeLogId = await inserisciOre(DATA_CODICI_RIGHE, operaioId, '4', taskDestinazioneId);
+    await inserisciMateriale(timeLogId, 'Faretto LED', '2', 'pz', 'FL-220');
+
+    const res = await request(app)
+      .get(`/api/v1/rapportini/anteprima?projectId=${projectDestinazioneId}&date=${DATA_CODICI_RIGHE}`)
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(res.status).toBe(200);
+    const materiali = (res.body.anteprima as RapportinoSnapshot).righe[0].materiali;
+    expect(materiali).toHaveLength(1);
+    expect(materiali[0].codice).toBe('FL-220');
+  });
+
+  it('stesso nome, stessa unità e STESSO codice: una voce sola, sommata', async () => {
+    const cavi = aggregato.filter((m) => m.nome === 'Cavo');
+    expect(cavi).toHaveLength(1);
+    expect(cavi[0].quantita).toBe('5');
+    expect(cavi[0].codice).toBe('C-1');
+  });
+
+  it('codici DIVERSI non si sommano: due voci distinte, ognuna col proprio codice', async () => {
+    const tubi = aggregato.filter((m) => m.nome === 'Tubo');
+    expect(tubi).toHaveLength(2);
+    // Confronto SENZA riordinare: l'ordine dei materiali aggregati è parte del contratto
+    // (nome, poi unità, poi codice) perché l'hash dello snapshot viene calcolato due volte
+    // e confrontato — un ordine instabile farebbe fallire ogni creazione.
+    expect(tubi.map((m) => m.codice)).toEqual(['T-1', 'T-2']);
+    // Nessuna delle due porta la quantità dell'altra: sommandole si otterrebbe "2 pz di
+    // un codice" che nessuno ha mai usato.
+    expect(tubi.every((m) => m.quantita === '1')).toBe(true);
+  });
+
+  it('uno col codice e uno senza restano DUE voci: l\'anomalia si vede, invece di fondersi in silenzio', async () => {
+    const viti = aggregato.filter((m) => m.nome === 'Vite');
+    expect(viti).toHaveLength(2);
+    // La voce senza codice viene prima: nell'ordinamento il codice assente vale stringa
+    // vuota. Anche qui il confronto è sull'ordine reale, non su una copia riordinata.
+    expect(viti.map((m) => m.codice)).toEqual([null, 'V-1']);
+  });
+
+  it('il PDF di un rapportino con destinazione e codici si genera davvero', async () => {
+    const timeLogId = await inserisciOre(DATA_PDF_COMPLETO, operaioId, '7', taskDestinazioneId);
+    await inserisciMateriale(timeLogId, 'Canalina', '12', 'm', 'CN-40');
+    await inserisciMateriale(timeLogId, 'Morsetti', '30', 'pz', null);
+    const creato = await creaRapportino(operaioToken, DATA_PDF_COMPLETO, projectDestinazioneId);
+    expect(creato.status).toBe(201);
+
+    const res = await request(app)
+      .get(`/api/v1/rapportini/${creato.body.rapportino.id}/pdf`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .buffer(true)
+      .parse((res2, cb) => {
+        const parti: Buffer[] = [];
+        res2.on('data', (c: Buffer) => parti.push(c));
+        res2.on('end', () => cb(null, Buffer.concat(parti)));
+      });
+
+    expect(res.status).toBe(200);
+    expect((res.body as Buffer).subarray(0, 5).toString()).toBe('%PDF-');
+  });
+});
+
+// Il caso che rende obbligatorio `.nullish()` (e non `.nullable()`) nello schema Zod
+// dello snapshot: un documento firmato PRIMA di questa versione non ha la chiave
+// `indirizzo` né i `codice` dei materiali. Con `.nullable()` il parse fallirebbe e ogni
+// lettura, PDF o rinvio email di quel documento risponderebbe 500 per sempre.
+describe('Snapshot v1 riletto e ristampato', () => {
+  // Id FISSI e non quelli generati dalle insert: senza, lo snapshot cambierebbe a ogni
+  // corsa e non potrebbe esistere un valore d'oro dell'hash (vedi sotto). Sono id interni
+  // allo snapshot, cioè copie storiche: le colonne project_id/created_by della riga
+  // puntano ai record veri, e sono quelle che il servizio usa per i controlli di accesso.
+  const V1_CANTIERE_ID = '00000000-0000-4000-8000-0000000000a1';
+  const V1_UTENTE_ID = '00000000-0000-4000-8000-0000000000a2';
+
+  // Snapshot nella forma v1: nessun `indirizzo` nel cantiere, nessun `codice` nei
+  // materiali. Letterale e costante, per poterne fissare l'hash.
+  const SNAPSHOT_V1 = {
+    versione: 1,
+    azienda: { nome: 'SnapshotV1Co', vat: null, indirizzo: null, email: null, telefono: null },
+    cantiere: {
+      id: V1_CANTIERE_ID,
+      projectNumber: 1,
+      code: null,
+      nome: 'Cantiere V1',
+      clientName: 'Vecchio Cliente',
+      tipoCommessa: 'consuntivo',
+    },
+    date: DATA_LAVORI,
+    righe: [
+      {
+        timeLogId: '00000000-0000-4000-8000-000000000001',
+        operaio: { id: V1_UTENTE_ID, nome: 'Admin V1' },
+        lavoro: { taskId: '00000000-0000-4000-8000-000000000002', titolo: 'Lavoro di allora' },
+        tipo: 'ordinario',
+        ore: '8.00',
+        oraInizio: '08:00',
+        oraFine: '17:00',
+        descrizioneLavoro: 'Descrizione di allora',
+        note: 'Nota di allora',
+        materiali: [{ nome: 'Cemento', quantita: '10', unita: 'sacchi' }],
+      },
+    ],
+    totali: {
+      oreTotali: '8.00',
+      perTipo: { ordinario: '8.00' },
+      materiali: [{ nome: 'Cemento', quantita: '10', unita: 'sacchi' }],
+    },
+    preparatoIl: '2026-01-15T09:00:00.000Z',
+    preparatoDa: { userId: V1_UTENTE_ID, nome: 'Admin V1' },
+  } as RapportinoSnapshot;
+
+  // VALORE D'ORO: lo sha256 dello snapshot qui sopra, scritto a mano e non calcolato.
+  // È l'unica forma che si rompe se `hashSnapshot` cambia — la canonicalizzazione, la
+  // serializzazione, l'algoritmo. Calcolarlo nel test con la funzione corrente (com'era
+  // prima) è una tautologia: qualunque modifica alla funzione sposterebbe insieme il
+  // valore atteso e quello osservato, e il test resterebbe verde mentre TUTTI gli hash
+  // già scritti a database diventano incompatibili — cioè mentre ogni rapportino firmato
+  // comincia a risultare "INTEGRITÀ VIOLATA" senza che nessuno sia mai stato alterato.
+  // Ottenuto con un'implementazione indipendente (chiavi ordinate ricorsivamente + sha256
+  // del JSON) e verificato che coincida con quella del servizio.
+  const HASH_ORO_SNAPSHOT_V1 = '3abba56369ee19e77fb3648b968fb717909b4f08945526b06bdadcfaf515e196';
+
+  let v1CompanyId: string;
+  let v1AdminToken: string;
+  let v1RapportinoId: string;
+
+  beforeAll(async () => {
+    const passwordHash = await bcrypt.hash('TestPassword123!', BCRYPT_TEST_COST);
+    // Azienda dedicata: il numero scritto a mano qui sotto sposterebbe il MAX della
+    // numerazione e falserebbe le asserzioni relative degli altri test.
+    const [company] = await db.insert(companies).values({ name: 'SnapshotV1Co' }).returning();
+    v1CompanyId = company.id;
+    const [admin] = await db
+      .insert(users)
+      .values({ email: 'rapportini-v1-admin@workflow360.local', passwordHash, name: 'Admin V1', role: 'admin', companyId: v1CompanyId })
+      .returning();
+    v1AdminToken = signAccessToken({ id: admin.id, email: admin.email, role: 'admin', companyId: v1CompanyId });
+
+    const [project] = await db
+      .insert(projects)
+      .values({ name: 'Cantiere V1', companyId: v1CompanyId, projectNumber: 1, tipoCommessa: 'consuntivo' })
+      .returning();
+
+    const [row] = await db
+      .insert(rapportini)
+      .values({
+        companyId: v1CompanyId,
+        projectId: project.id,
+        date: DATA_LAVORI,
+        revision: 1,
+        numero: 1,
+        status: 'in_firma',
+        createdBy: admin.id,
+        snapshotJson: SNAPSHOT_V1,
+        // Il valore d'oro scritto a mano, NON hashSnapshot(SNAPSHOT_V1): la riga a
+        // database deve somigliare a una scritta mesi fa da una versione precedente del
+        // codice, non a una calcolata adesso dalla versione corrente. È ciò che rende
+        // sensato il controllo d'integrità che il servizio esegue a ogni lettura.
+        snapshotHash: HASH_ORO_SNAPSHOT_V1,
+        totalHours: '8.00',
+        tokenHash: 'hash-fittizio-snapshot-v1',
+        expiresAt: new Date(Date.now() + 3_600_000),
+      })
+      .returning();
+    v1RapportinoId = row.id;
+  });
+
+  afterAll(async () => {
+    await db.delete(rapportini).where(eq(rapportini.companyId, v1CompanyId)).catch(() => {});
+    await db.delete(projects).where(eq(projects.companyId, v1CompanyId)).catch(() => {});
+    await db.delete(users).where(eq(users.companyId, v1CompanyId)).catch(() => {});
+    await db.delete(companies).where(eq(companies.id, v1CompanyId)).catch(() => {});
+  });
+
+  it("l'hash di uno snapshot v1 è ancora quello di allora (valore d'oro)", () => {
+    expect(hashSnapshot(SNAPSHOT_V1)).toBe(HASH_ORO_SNAPSHOT_V1);
+  });
+
+  it('si legge ancora (200) nonostante le chiavi nuove non esistano', async () => {
+    const res = await request(app)
+      .get(`/api/v1/rapportini/${v1RapportinoId}`)
+      .set('Authorization', `Bearer ${v1AdminToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.rapportino.snapshot.versione).toBe(1);
+    expect(res.body.rapportino.snapshot.cantiere.indirizzo).toBeUndefined();
+    expect(res.body.rapportino.snapshot.totali.materiali[0].codice).toBeUndefined();
+  });
+
+  it('e si ristampa ancora: il generatore PDF regge i campi assenti', async () => {
+    const res = await request(app)
+      .get(`/api/v1/rapportini/${v1RapportinoId}/pdf`)
+      .set('Authorization', `Bearer ${v1AdminToken}`)
+      .buffer(true)
+      .parse((res2, cb) => {
+        const parti: Buffer[] = [];
+        res2.on('data', (c: Buffer) => parti.push(c));
+        res2.on('end', () => cb(null, Buffer.concat(parti)));
+      });
+
+    expect(res.status).toBe(200);
+    expect((res.body as Buffer).subarray(0, 5).toString()).toBe('%PDF-');
+  });
+
+  // Senza questa asserzione i due test qui sopra resterebbero verdi anche se OGNI
+  // rapportino v1 venisse registrato come corrotto: verificaIntegritaSnapshot non blocca
+  // la richiesta, logga e basta (per scelta — un documento firmato deve restare leggibile
+  // anche se il confronto fallisce). "200 e comincia con %PDF-" non dice nulla su ciò che
+  // è successo nei log, ed è proprio lì che vive l'unico segnale di corruzione.
+  it("né la lettura né la stampa segnalano un'integrità violata", async () => {
+    const errori = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const lettura = await request(app)
+        .get(`/api/v1/rapportini/${v1RapportinoId}`)
+        .set('Authorization', `Bearer ${v1AdminToken}`);
+      expect(lettura.status).toBe(200);
+
+      const stampa = await request(app)
+        .get(`/api/v1/rapportini/${v1RapportinoId}/pdf`)
+        .set('Authorization', `Bearer ${v1AdminToken}`)
+        .buffer(true)
+        .parse((res2, cb) => {
+          const parti: Buffer[] = [];
+          res2.on('data', (c: Buffer) => parti.push(c));
+          res2.on('end', () => cb(null, Buffer.concat(parti)));
+        });
+      expect(stampa.status).toBe(200);
+
+      const messaggi = errori.mock.calls.map((c) => String(c[0])).join('\n');
+      expect(messaggi).not.toContain('INTEGRITÀ');
+    } finally {
+      errori.mockRestore();
+    }
   });
 });

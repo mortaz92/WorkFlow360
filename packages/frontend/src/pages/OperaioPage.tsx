@@ -9,7 +9,7 @@ import type {
   CreateTimeLogInput,
   UpdateTimeLogInput,
 } from '../lib/types';
-import { badgeClassForTipo, formatHours, PROJECT_STATUS_LABELS } from '../lib/format';
+import { badgeClassForTipo, formatHours, formatQuantita, PROJECT_STATUS_LABELS } from '../lib/format';
 import {
   CalendarIcon,
   CheckCircleIcon,
@@ -85,6 +85,10 @@ interface MaterialDraft {
   name: string;
   quantity: string;
   unit: string;
+  // Codice articolo, facoltativo. Stringa vuota e non `null` finché sta nel form: è il
+  // valore che un <input> restituisce davvero quando è vuoto — la conversione a null
+  // avviene una volta sola, al momento dell'invio (vedi filteredMaterials).
+  code: string;
 }
 
 // Data in fuso LOCALE, non UTC: toISOString() userebbe UTC, e tra mezzanotte e le
@@ -265,7 +269,9 @@ export default function OperaioPage() {
     setDate(log.date);
     setWork(log.workDescription ?? '');
     setNotes(log.notes ?? '');
-    setMaterials(log.materials.map((m) => ({ name: m.name, quantity: m.quantity, unit: m.unit })));
+    setMaterials(
+      log.materials.map((m) => ({ name: m.name, quantity: m.quantity, unit: m.unit, code: m.code ?? '' })),
+    );
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
@@ -309,9 +315,13 @@ export default function OperaioPage() {
     if (!/^\d+(\.\d{1,2})?$/.test(hours) || Number(hours) <= 0)
       return setFormError('Inserisci un numero di ore valido (es. 3.5)');
 
+    // `code: ... || null` e non `|| undefined`: un codice cancellato dall'operaio deve
+    // dire "toglilo", e in modifica i materiali sono un replace dell'intera lista — un
+    // undefined lascerebbe la riga senza codice comunque, ma passare null lo dichiara
+    // invece di lasciarlo dedurre.
     const filteredMaterials = materials
       .filter((m) => m.name.trim() && Number(m.quantity) > 0)
-      .map((m) => ({ name: m.name.trim(), quantity: m.quantity, unit: m.unit || 'pz' }));
+      .map((m) => ({ name: m.name.trim(), quantity: m.quantity, unit: m.unit || 'pz', code: m.code.trim() || null }));
 
     setSaving(true);
     try {
@@ -369,7 +379,7 @@ export default function OperaioPage() {
   }
 
   function addMaterial() {
-    setMaterials((m) => [...m, { name: '', quantity: '', unit: 'pz' }]);
+    setMaterials((m) => [...m, { name: '', quantity: '', unit: 'pz', code: '' }]);
   }
   function updateMaterial(i: number, field: keyof MaterialDraft, value: string) {
     setMaterials((prev) => prev.map((m, idx) => (idx === i ? { ...m, [field]: value } : m)));
@@ -666,45 +676,71 @@ export default function OperaioPage() {
                         una riga da tre campi, e ciascuno ha la propria aria-label. Un
                         <label> senza campo a cui agganciarsi non descriverebbe niente. */}
                     <span className={ETICHETTA_CAMPO}>Materiali usati</span>
+                    {/* DUE righe sul telefono, una sola da tablet in su. Il codice è il
+                        quarto campo del materiale: infilarlo nella riga da tre di prima
+                        avrebbe lasciato quattro campi da ~70px su uno schermo da 360, cioè
+                        quattro caselle in cui non si legge quello che si scrive. Il riquadro
+                        chiaro attorno a ogni materiale serve solo sul telefono: con due
+                        righe per materiale, senza, non si capisce dove finisce uno e comincia
+                        il successivo. */}
                     {materials.map((m, i) => (
-                      <div key={i} className="flex items-center gap-1.5">
-                        <div className="flex-[2]">
-                          <Input
-                            aria-label={`Nome del materiale ${i + 1}`}
-                            size="lg"
-                            placeholder="Nome (es. Tubo rame)"
-                            value={m.name}
-                            onChange={(e) => updateMaterial(i, 'name', e.target.value)}
-                          />
+                      <div
+                        key={i}
+                        className="flex flex-col gap-1.5 rounded-lg border border-surface-200 p-2 dark:border-surface-700 sm:flex-row sm:items-center sm:border-0 sm:p-0"
+                      >
+                        <div className="flex items-center gap-1.5 sm:flex-[3]">
+                          <div className="flex-1">
+                            <Input
+                              aria-label={`Nome del materiale ${i + 1}`}
+                              size="lg"
+                              placeholder="Nome (es. Tubo rame)"
+                              value={m.name}
+                              onChange={(e) => updateMaterial(i, 'name', e.target.value)}
+                            />
+                          </div>
+                          {/* maxLength allineato al tetto dello schema Zod del backend
+                              (materialSchema.code, 50). */}
+                          <div className="w-28 shrink-0">
+                            <Input
+                              aria-label={`Codice del materiale ${i + 1}`}
+                              size="lg"
+                              placeholder="Codice"
+                              maxLength={50}
+                              value={m.code}
+                              onChange={(e) => updateMaterial(i, 'code', e.target.value)}
+                            />
+                          </div>
                         </div>
-                        <div className="flex-1">
-                          <Input
-                            aria-label={`Quantità del materiale ${i + 1}`}
-                            size="lg"
-                            placeholder="Qtà"
-                            type="number"
-                            step="0.1"
-                            value={m.quantity}
-                            onChange={(e) => updateMaterial(i, 'quantity', e.target.value)}
-                          />
+                        <div className="flex items-center gap-1.5 sm:flex-[2]">
+                          <div className="flex-1">
+                            <Input
+                              aria-label={`Quantità del materiale ${i + 1}`}
+                              size="lg"
+                              placeholder="Qtà"
+                              type="number"
+                              step="0.1"
+                              value={m.quantity}
+                              onChange={(e) => updateMaterial(i, 'quantity', e.target.value)}
+                            />
+                          </div>
+                          <div className="flex-1">
+                            <Input
+                              aria-label={`Unità di misura del materiale ${i + 1}`}
+                              size="lg"
+                              placeholder="unità"
+                              value={m.unit}
+                              onChange={(e) => updateMaterial(i, 'unit', e.target.value)}
+                            />
+                          </div>
+                          <Button
+                            variant="ghost"
+                            className="shrink-0"
+                            onClick={() => removeMaterial(i)}
+                            aria-label={`Rimuovi il materiale ${i + 1}`}
+                          >
+                            <XIcon className="h-5 w-5" />
+                          </Button>
                         </div>
-                        <div className="flex-1">
-                          <Input
-                            aria-label={`Unità di misura del materiale ${i + 1}`}
-                            size="lg"
-                            placeholder="unità"
-                            value={m.unit}
-                            onChange={(e) => updateMaterial(i, 'unit', e.target.value)}
-                          />
-                        </div>
-                        <Button
-                          variant="ghost"
-                          className="shrink-0"
-                          onClick={() => removeMaterial(i)}
-                          aria-label={`Rimuovi il materiale ${i + 1}`}
-                        >
-                          <XIcon className="h-5 w-5" />
-                        </Button>
                       </div>
                     ))}
                     <Button variant="ghost" onClick={addMaterial}>
@@ -822,7 +858,16 @@ export default function OperaioPage() {
                       {log.materials.length > 0 && (
                         <span className={`flex items-center gap-1.5 ${TESTO_ATTENUATO}`}>
                           <PackageIcon className="h-4 w-4" />{' '}
-                          {log.materials.map((m) => `${m.name} ${m.quantity}${m.unit}`).join(', ')}
+                          {/* Il codice compare fra parentesi solo dove c'è: è l'unico punto
+                              in cui l'operaio può rileggere quello che ha scritto senza
+                              riaprire la registrazione in modifica. */}
+                          {/* formatQuantita: `quantity` arriva grezza dall'API, cioè
+                              "12.000" per dodici metri — che in italiano si legge
+                              "dodicimila". Qui è dove l'operaio rilegge quello che ha
+                              appena scritto, quindi è anche dove se ne accorgerebbe. */}
+                          {log.materials
+                            .map((m) => `${m.name}${m.code ? ` (${m.code})` : ''} ${formatQuantita(m.quantity)}${m.unit}`)
+                            .join(', ')}
                         </span>
                       )}
                       <div className="mt-1 flex gap-2">

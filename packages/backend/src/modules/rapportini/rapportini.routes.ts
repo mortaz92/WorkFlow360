@@ -64,12 +64,24 @@ const firmaSchema = z.object({
   // alla dashboard. Un token opaco base64url: il tetto di lunghezza serve solo a
   // scartare subito payload assurdi prima di calcolarne l'hash.
   token: z.string().min(1).max(255),
-  firmatarioNome: z.string().min(1).max(255),
+  // Niente a capo né caratteri di controllo, e non è pignoleria: il firmatario è l'unico
+  // attore NON autenticato del sistema, e questo nome finisce stampato sul PDF, interpolato
+  // nel corpo dell'email che riceve anche l'azienda in copia nascosta, e scritto nei log.
+  // Un `\n` o un `\r` in mezzo permette di spezzare una riga e far comparire testo dove
+  // non è previsto: una riga di log che sembra una voce a sé, o una seconda riga sotto la
+  // firma del PDF. L'escape HTML già applicato protegge dai marcatori, non dalla STRUTTURA
+  // del testo. Tutto il resto resta ammesso — accenti, apostrofi, alfabeti non latini: è
+  // il nome di una persona, non un identificatore.
+  firmatarioNome: z
+    .string()
+    .min(1)
+    .max(255)
+    .regex(/^[^\r\n\x00-\x1f]+$/, 'Il nome non può contenere a capo o caratteri di controllo'),
   firmatarioEmail: emailSchema,
   // Nessun limite di lunghezza qui: la validazione vera (prefisso, byte magici PNG,
-  // intestazione IHDR, dimensione massima) vive in validaFirmaPng nel service, che sa
-  // dire con precisione cosa non va. Il tetto duro sulla dimensione lo mette già
-  // express.json({limit:'1mb'}) montato su questa rotta in app.ts.
+  // intestazione IHDR, dimensione massima e decompressione dei dati immagine) vive in
+  // firmaPng.ts, che sa dire con precisione cosa non va. Il tetto duro sulla dimensione
+  // lo mette già express.json({limit:'1mb'}) montato su questa rotta in app.ts.
   firmaPng: z.string().min(1),
   // Facoltativo (client vecchi non lo mandano): quando presente deve combaciare con
   // l'id risolto dal token, verificato in signRapportino — vedi il commento lì per lo

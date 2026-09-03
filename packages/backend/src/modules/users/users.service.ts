@@ -331,12 +331,12 @@ export async function anonymizeUser(id: string, actingUser: AuthenticatedUser): 
     return toPublicUser(updatedUser);
   });
 
-  // Dopo il commit, non dentro la transazione: recordAudit scrive con `db` e non con il
-  // client `tx` (vale anche dove è chiamata da timeLogs.service.ts, dove si trova dentro
-  // il blocco ma su un'altra connessione), quindi la voce di audit non fa comunque parte
-  // della transazione — meglio che questo sia visibile dalla struttura del codice.
-  // La cancellazione dei dati è la parte critica: un errore qui non deve annullarla né
-  // far fallire la richiesta, la voce di audit è accessoria.
+  // Dopo il commit e FUORI dalla transazione, per scelta: qui la voce di audit è
+  // deliberatamente accessoria — la cancellazione dei dati è la parte critica, e un
+  // errore nell'audit non deve annullarla né far fallire la richiesta. Per questo
+  // recordAudit viene chiamata SENZA passarle un client di transazione (usa il `db`
+  // globale), a differenza di timeLogs/rapportini dove la traccia fa parte
+  // dell'operazione e riceve il `tx` del chiamante (il perché è in auditLog.service.ts).
   try {
     await recordAudit({
       companyId: actingUser.companyId,

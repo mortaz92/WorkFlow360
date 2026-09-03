@@ -133,6 +133,7 @@ export async function createProject(input: CreateProjectInput, companyId: string
           companyId,
           projectNumber,
           code: input.code ?? null,
+          address: input.address ?? null,
           name: input.name.trim(),
           description: input.description ?? null,
           status: input.status ?? 'pending',
@@ -172,6 +173,7 @@ export async function updateProject(
   const patch: Record<string, unknown> = {};
   if (input.name !== undefined) patch.name = input.name.trim();
   if (input.code !== undefined) patch.code = input.code;
+  if (input.address !== undefined) patch.address = input.address;
   if (input.description !== undefined) patch.description = input.description;
   if (input.status !== undefined) patch.status = input.status;
   if (input.tipoCommessa !== undefined) patch.tipoCommessa = input.tipoCommessa;

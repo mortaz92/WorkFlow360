@@ -74,14 +74,27 @@ function nightHoursInShift(startTime: string, durationHours: number): number {
 
 // Helper: carica i materiali di un time_log e li allega alla riga pubblica. Accetta
 // `db` o un client di transazione (vedi tipo Queryable sopra).
-async function loadMaterials(queryable: Queryable, timeLogId: string): Promise<PublicTimeLog['materials']> {
+//
+// `companyId` è un parametro e non un dettaglio implicito: oggi ogni chiamante ha già
+// risolto il time_log sotto il filtro dell'azienda, quindi il predicato non cambia
+// nemmeno una riga del risultato. Sta qui perché era l'UNICO punto di quest'area che si
+// affidava a quel ragionamento invece di portarsi addosso il proprio vincolo di tenant —
+// lo stesso principio già scritto in rapportini.service.ts (dove il companyId è ripetuto
+// anche sulle join che "tanto sono già ristrette"). Un isolamento che dipende dal
+// ricordarsi cosa ha fatto il chiamante è un isolamento che prima o poi salta.
+async function loadMaterials(
+  queryable: Queryable,
+  timeLogId: string,
+  companyId: string,
+): Promise<PublicTimeLog['materials']> {
   const rows = await queryable
     .select()
     .from(timeLogMaterials)
-    .where(eq(timeLogMaterials.timeLogId, timeLogId));
+    .where(and(eq(timeLogMaterials.timeLogId, timeLogId), eq(timeLogMaterials.companyId, companyId)));
   return rows.map((m) => ({
     id: m.id,
     name: m.name,
+    code: m.code,
     quantity: m.quantity, // numeric -> stringa
     unit: m.unit,
   }));
@@ -126,7 +139,9 @@ export async function listTimeLogs(
       .where(and(...conditions)),
   ]);
 
-  const withMaterials = await Promise.all(rows.map(async (r) => toPublicTimeLog(r, await loadMaterials(db, r.id))));
+  const withMaterials = await Promise.all(
+    rows.map(async (r) => toPublicTimeLog(r, await loadMaterials(db, r.id, companyId))),
+  );
   return { timeLogs: withMaterials, total: count, page, limit };
 }
 
@@ -146,7 +161,7 @@ export async function getTimeLogById(id: string, companyId: string, actingUser: 
   if (!isManager(actingUser.role) && row.userId !== actingUser.id) {
     throw new ForbiddenError('Puoi vedere solo le tue ore');
   }
-  return toPublicTimeLog(row, await loadMaterials(db, row.id));
+  return toPublicTimeLog(row, await loadMaterials(db, row.id, companyId));
 }
 
 function validateMaterials(materials: CreateMaterialInput[] | undefined): void {
@@ -201,12 +216,13 @@ async function insertTimeLogRow(
           companyId,
           timeLogId: row.id,
           name: m.name.trim(),
+          code: m.code ?? null,
           quantity: m.quantity,
           unit: m.unit ?? 'pz',
         })),
       )
       .returning();
-    materials = inserted.map((m) => ({ id: m.id, name: m.name, quantity: m.quantity, unit: m.unit }));
+    materials = inserted.map((m) => ({ id: m.id, name: m.name, code: m.code, quantity: m.quantity, unit: m.unit }));
   }
 
   return toPublicTimeLog(row, materials);
@@ -520,15 +536,16 @@ export async function updateTimeLog(
               companyId,
               timeLogId: id,
               name: m.name.trim(),
+              code: m.code ?? null,
               quantity: m.quantity,
               unit: m.unit ?? 'pz',
             })),
           )
           .returning();
-        materials = inserted.map((m) => ({ id: m.id, name: m.name, quantity: m.quantity, unit: m.unit }));
+        materials = inserted.map((m) => ({ id: m.id, name: m.name, code: m.code, quantity: m.quantity, unit: m.unit }));
       }
     } else {
-      materials = await loadMaterials(tx, id);
+      materials = await loadMaterials(tx, id, companyId);
     }
 
     const [updated] = await tx
@@ -542,15 +559,25 @@ export async function updateTimeLog(
     // operaio non può toccare righe altrui, il controllo di ruolo sopra lo impedisce).
     // Un admin che riscrive le ore di un collega senza lasciare traccia è il genere di
     // cosa che si mette il primo giorno, non si aggiunge dopo un contenzioso.
+    //
+    // `tx` passato esplicitamente, e non è un dettaglio: sul `db` globale questa INSERT
+    // girerebbe su un'ALTRA connessione, prendendo un FOR KEY SHARE sulla riga di
+    // companies (foreign key di audit_log) mentre questa transazione tiene bloccata la
+    // riga delle ore. Chi tenesse companies in FOR UPDATE aspettando queste ore chiuderebbe
+    // un'attesa circolare invisibile a Postgres — nessun "deadlock detected", solo due
+    // connessioni appese per sempre. Il perché completo è in auditLog.service.ts.
     if (actingUser.id !== existing.userId) {
-      await recordAudit({
-        companyId,
-        userId: actingUser.id,
-        action: 'UPDATE',
-        entityType: 'time_log',
-        entityId: id,
-        changes: { before: existing, after: updated },
-      });
+      await recordAudit(
+        {
+          companyId,
+          userId: actingUser.id,
+          action: 'UPDATE',
+          entityType: 'time_log',
+          entityId: id,
+          changes: { before: existing, after: updated },
+        },
+        tx,
+      );
     }
 
     return toPublicTimeLog(updated, materials);
@@ -579,17 +606,21 @@ export async function deleteTimeLog(id: string, companyId: string, actingUser: A
     // CASCADE rimuove anche i time_log_materials figli.
     await tx.delete(timeLogs).where(and(eq(timeLogs.id, id), eq(timeLogs.companyId, companyId)));
 
-    // Stessa traccia di audit di updateTimeLog: solo quando chi cancella non è il
-    // proprietario originale della riga (sempre un admin/PM che tocca ore non sue).
+    // Stessa traccia di audit di updateTimeLog, `tx` incluso e per la stessa ragione.
+    // Solo quando chi cancella non è il proprietario originale della riga (sempre un
+    // admin/PM che tocca ore non sue).
     if (actingUser.id !== existing.userId) {
-      await recordAudit({
-        companyId,
-        userId: actingUser.id,
-        action: 'DELETE',
-        entityType: 'time_log',
-        entityId: id,
-        changes: { before: existing },
-      });
+      await recordAudit(
+        {
+          companyId,
+          userId: actingUser.id,
+          action: 'DELETE',
+          entityType: 'time_log',
+          entityId: id,
+          changes: { before: existing },
+        },
+        tx,
+      );
     }
   });
 }

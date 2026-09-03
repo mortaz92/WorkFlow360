@@ -224,6 +224,78 @@ describe('POST /api/v1/projects — codice cantiere (code)', () => {
   });
 });
 
+// L'indirizzo del cantiere è la "Destinazione" del rapportino cartaceo: dove si è
+// lavorato, che non coincide con la sede del committente. Facoltativo, ma la differenza
+// fra null e stringa vuota conta, perché finisce nello snapshot congelato del documento.
+describe('Indirizzo del cantiere (address)', () => {
+  it('un cantiere può essere creato con un indirizzo, che torna nella risposta', async () => {
+    const res = await request(app)
+      .post('/api/v1/projects')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ name: 'Cantiere Con Indirizzo Vitest', address: 'Via delle Prove 42, Testville' });
+    expect(res.status).toBe(201);
+    expect(res.body.project.address).toBe('Via delle Prove 42, Testville');
+    createdProjectIds.push(res.body.project.id);
+  });
+
+  it('creato senza indirizzo -> null, e una PATCH di un altro campo non lo tocca', async () => {
+    const creato = await request(app)
+      .post('/api/v1/projects')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ name: 'Cantiere Senza Indirizzo Vitest' });
+    expect(creato.status).toBe(201);
+    expect(creato.body.project.address).toBeNull();
+    createdProjectIds.push(creato.body.project.id);
+
+    const patch = await request(app)
+      .patch(`/api/v1/projects/${creato.body.project.id}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ status: 'in_progress' });
+    expect(patch.status).toBe(200);
+    expect(patch.body.project.address).toBeNull();
+  });
+
+  it('PATCH: aggiorna, azzera con null, e una stringa vuota vale "nessun indirizzo"', async () => {
+    const creato = await request(app)
+      .post('/api/v1/projects')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ name: 'Cantiere Indirizzo Modificabile Vitest', address: 'Via Iniziale 1' });
+    expect(creato.status).toBe(201);
+    const id = creato.body.project.id;
+    createdProjectIds.push(id);
+
+    const aggiornato = await request(app)
+      .patch(`/api/v1/projects/${id}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ address: '  Via Nuova 9, Testville  ' });
+    expect(aggiornato.status).toBe(200);
+    // Ripulito dagli spazi ai lati, come già si fa per il codice cantiere.
+    expect(aggiornato.body.project.address).toBe('Via Nuova 9, Testville');
+
+    const azzerato = await request(app)
+      .patch(`/api/v1/projects/${id}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ address: null });
+    expect(azzerato.status).toBe(200);
+    expect(azzerato.body.project.address).toBeNull();
+
+    const svuotato = await request(app)
+      .patch(`/api/v1/projects/${id}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ address: '   ' });
+    expect(svuotato.status).toBe(200);
+    expect(svuotato.body.project.address).toBeNull();
+  });
+
+  it('indirizzo oltre il massimo consentito -> 400, non un errore del driver travestito da 500', async () => {
+    const res = await request(app)
+      .post('/api/v1/projects')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ name: 'Cantiere Indirizzo Lunghissimo Vitest', address: 'X'.repeat(501) });
+    expect(res.status).toBe(400);
+  });
+});
+
 describe('GET /api/v1/projects', () => {
   it('un resource può leggere la lista (204)', async () => {
     const res = await request(app).get('/api/v1/projects').set('Authorization', `Bearer ${resourceToken}`);

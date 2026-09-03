@@ -30,10 +30,12 @@ export type ProjectTipoCommessa = 'contratto' | 'consuntivo';
 export type ProjectStatus = 'pending' | 'in_progress' | 'completed' | 'blocked';
 
 // Rispecchia esattamente PublicProject del backend (packages/backend/src/modules/projects/projects.types.ts).
-// "clientName" non esiste nello schema — non aggiungerlo qui senza prima aggiungerlo
-// davvero al database, altrimenti torna a essere ignorato in silenzio. "code" invece
-// esiste dal 19/08 (migrazione 0007): scritto a mano dall'admin, facoltativo, univoco
-// per azienda — vedi etichettaCantiere() in format.ts per come si mostra.
+// "code" esiste dal 19/08 (migrazione 0007): scritto a mano dall'admin, facoltativo,
+// univoco per azienda — vedi etichettaCantiere() in format.ts per come si mostra.
+// "clientName" esiste in tabella dalla migrazione 0011 ed è SEMPRE stato restituito a
+// runtime (toPublicProject fa spread dell'intera riga): il commento che stava qui diceva
+// il contrario, e per tutto quel tempo questo tipo ha mentito su cosa contiene davvero la
+// risposta — un campo presente che nessuno poteva usare senza un cast.
 export interface Project {
   id: string;
   // Identificativo leggibile ("Cantiere #12"), progressivo per azienda, assegnato dal
@@ -41,6 +43,11 @@ export interface Project {
   projectNumber: number;
   code: string | null;
   name: string;
+  clientName: string | null;
+  // Indirizzo del cantiere, la "Destinazione" del rapportino: DOVE si è lavorato, che non
+  // coincide con la sede del committente. NULL per i cantieri creati prima di questo campo
+  // o senza indirizzo scritto — sul documento diventa un trattino, mai il nome del cantiere.
+  address: string | null;
   description: string | null;
   status: ProjectStatus;
   tipoCommessa: ProjectTipoCommessa;
@@ -151,6 +158,11 @@ export interface ProjectEmployeeRow {
 export interface TimeLogMaterial {
   id: string;
   name: string;
+  // Codice articolo scritto dall'operaio (colonna CODICE del blocco cartaceo).
+  // Facoltativo: null quando non è stato scritto, mai stringa vuota — il backend
+  // normalizza "" a null perché sul rapportino il codice entra nella chiave di
+  // aggregazione dei materiali, e "" contro null sarebbero due articoli distinti.
+  code: string | null;
   quantity: string;
   unit: string;
 }
@@ -291,12 +303,18 @@ export interface SnapshotCantiere {
   nome: string;
   clientName: string | null;
   tipoCommessa: string;
+  /** "Destinazione" sul documento. OPZIONALE e non solo nullable: uno snapshot v1 non ha
+   * proprio la chiave, e chi lo rilegge deve trattare anche `undefined`. */
+  indirizzo?: string | null;
 }
 
 export interface SnapshotMateriale {
   nome: string;
   quantita: string;
   unita: string;
+  /** Codice articolo. Opzionale per la stessa ragione di `indirizzo`: assente negli
+   * snapshot v1, che restano leggibili e ristampabili. */
+  codice?: string | null;
 }
 
 export interface SnapshotRiga {
@@ -336,6 +354,10 @@ export interface RapportinoListItem {
   id: string;
   projectId: string;
   date: string;
+  /** Progressivo per azienda, assegnato alla creazione. Vive in colonna e NON nello
+   * snapshot: l'anteprima costruisce lo snapshot prima che il numero esista — per questo
+   * PreparaRapportino non può mostrarlo. Si formatta con formatNumeroRapportino(). */
+  numero: number;
   revision: number;
   status: RapportinoStatus;
   totalHours: string;
@@ -389,7 +411,10 @@ export interface CreateTimeLogInput {
   endTime?: string;
   workDescription?: string;
   notes?: string;
-  materials?: { name: string; quantity: string; unit?: string }[];
+  // `code` facoltativo: una riga senza codice è normale (l'operaio scrive il codice solo
+  // quando ce l'ha sotto mano). Stringa vuota e null valgono lo stesso, il backend
+  // normalizza entrambe a null.
+  materials?: { name: string; quantity: string; unit?: string; code?: string | null }[];
 }
 
 // Diverso da Partial<CreateTimeLogInput> apposta: nell'update il form di modifica
@@ -411,5 +436,7 @@ export interface UpdateTimeLogInput {
   endTime?: string | null;
   workDescription?: string | null;
   notes?: string | null;
-  materials?: { name: string; quantity: string; unit?: string }[];
+  // Nell'update i materiali sono un REPLACE dell'intera lista (semantica del backend):
+  // un codice omesso qui non viene "lasciato com'era", viene azzerato insieme alla riga.
+  materials?: { name: string; quantity: string; unit?: string; code?: string | null }[];
 }

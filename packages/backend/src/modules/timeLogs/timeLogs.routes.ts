@@ -17,6 +17,20 @@ const materialSchema = z.object({
   name: z.string().min(1).max(255),
   quantity: QTY,
   unit: z.string().max(32).optional().default('pz'),
+  // Codice articolo, facoltativo. Il campo lasciato bianco nel form arriva come "" e
+  // diventa null, non un codice letterale vuoto: sul rapportino il codice entra nella
+  // chiave con cui i materiali vengono aggregati, e "" contro null sarebbero due
+  // articoli distinti sul documento che il cliente firma.
+  code: z
+    .string()
+    .max(50)
+    .nullable()
+    .optional()
+    .transform((v) => {
+      if (v == null) return v;
+      const trimmed = v.trim();
+      return trimmed.length === 0 ? null : trimmed;
+    }),
 });
 
 const createSchema = z.object({

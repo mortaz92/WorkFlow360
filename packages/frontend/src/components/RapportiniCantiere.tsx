@@ -1,7 +1,13 @@
 import { useEffect, useState } from 'react';
 import { api } from '../lib/api';
 import type { RapportinoListItem } from '../lib/types';
-import { formatDate, formatHours, RAPPORTINO_STATUS_BADGE_VARIANT, RAPPORTINO_STATUS_LABELS } from '../lib/format';
+import {
+  formatDate,
+  formatHours,
+  formatNumeroRapportino,
+  RAPPORTINO_STATUS_BADGE_VARIANT,
+  RAPPORTINO_STATUS_LABELS,
+} from '../lib/format';
 import { DocumentIcon } from './icons';
 import { Badge, Button, Card, CardContent, CardHeader, CardTitle, EmptyState, Textarea } from './ui';
 
@@ -181,6 +187,13 @@ export default function RapportiniCantiere({ projectId, isAdmin }: { projectId?:
               <li key={r.id} className={RIGA_ELENCO}>
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
+                    {/* Il numero PRIMA della data, in font-mono: è l'identificativo con cui
+                        il cliente chiama il documento al telefono ("il rapportino 08380"),
+                        e in un elenco di più rapportini della stessa giornata è l'unica
+                        cosa che li distingue. */}
+                    <span className="font-mono text-sm text-surface-500 dark:text-surface-400">
+                      {formatNumeroRapportino(r.numero)}
+                    </span>
                     <span className="font-medium text-surface-900 dark:text-surface-100">{formatDate(r.date)}</span>
                     <Badge variant={RAPPORTINO_STATUS_BADGE_VARIANT[r.status]}>{RAPPORTINO_STATUS_LABELS[r.status]}</Badge>
                   </div>

@@ -4,7 +4,12 @@ import type { RapportinoStatus } from '../../core/db/schema';
 // Versione della FORMA dello snapshot, non del rapportino. Un documento firmato mesi fa
 // va riletto e ristampato con la struttura che aveva allora: chi legge uno snapshot
 // deve poter capire quale forma sta guardando senza indovinarlo dai campi presenti.
-export const SNAPSHOT_VERSIONE = 1;
+//
+// v2 (indirizzo del cantiere e codice dei materiali): il bump NON invalida gli hash già
+// registrati, perché verificaIntegritaSnapshot ricalcola dal JSON SALVATO e leggiSnapshot
+// restituisce l'oggetto originale, non l'output di Zod. Uno snapshot v1 resta leggibile
+// così com'è — vedi i `.nullish()` più sotto, che è ciò che lo rende possibile.
+export const SNAPSHOT_VERSIONE = 2;
 
 // Tutto lo snapshot è per COPIA, non per riferimento: nomi ed email sono duplicati qui
 // dentro invece di essere risolti con una join al momento della lettura. DELETE
@@ -30,12 +35,18 @@ export interface SnapshotCantiere {
   nome: string;
   clientName: string | null;
   tipoCommessa: string;
+  /** "Destinazione" sul documento. OPZIONALE e non solo nullable: uno snapshot v1 non ha
+   * proprio la chiave, e chi lo rilegge deve trattare anche `undefined`. */
+  indirizzo?: string | null;
 }
 
 export interface SnapshotMateriale {
   nome: string;
   quantita: string;
   unita: string;
+  /** Codice articolo. Opzionale per la stessa ragione di `indirizzo`: assente negli
+   * snapshot v1, che restano leggibili e ristampabili. */
+  codice?: string | null;
 }
 
 export interface SnapshotRiga {
@@ -79,10 +90,17 @@ export interface RapportinoSnapshot {
 // enum, `date` è z.string() e non un formato — un documento firmato anni fa deve poter
 // essere ristampato anche se nel frattempo i tipi di ora ammessi sono cambiati. Qui si
 // controlla la FORMA, non le regole di dominio del momento.
+//
+// I campi aggiunti in v2 usano `.nullish()` e MAI `.nullable()`, ed è la differenza fra
+// un documento riletto e un 500: `.nullable()` accetta `null` ma RIFIUTA la chiave
+// assente, e uno snapshot v1 la chiave non ce l'ha proprio. Con `.nullable()` il parse
+// fallirebbe, leggiSnapshot lancerebbe, e ogni GET, ogni PDF e ogni rinvio email di un
+// rapportino GIÀ FIRMATO prima di questa versione risponderebbe 500 per sempre.
 const snapshotMaterialeSchema = z.object({
   nome: z.string(),
   quantita: z.string(),
   unita: z.string(),
+  codice: z.string().nullish(),
 });
 
 const snapshotRigaSchema = z.object({
@@ -114,6 +132,7 @@ export const rapportinoSnapshotSchema = z.object({
     nome: z.string(),
     clientName: z.string().nullable(),
     tipoCommessa: z.string(),
+    indirizzo: z.string().nullish(),
   }),
   date: z.string(),
   righe: z.array(snapshotRigaSchema),
@@ -131,6 +150,9 @@ export interface RapportinoListItem {
   id: string;
   projectId: string;
   date: string;
+  /** Progressivo per azienda, assegnato alla creazione. Vive in colonna e NON nello
+   * snapshot: l'anteprima costruisce lo snapshot prima che il numero esista. */
+  numero: number;
   revision: number;
   status: RapportinoStatus;
   totalHours: string;

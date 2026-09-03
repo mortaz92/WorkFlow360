@@ -37,6 +37,13 @@ export const projects = pgTable(
     // questo buco). Serve per davvero da quando il cliente firma il rapportino: sul
     // documento deve comparire il nome di chi lo sottoscrive, non solo quello del cantiere.
     clientName: varchar('client_name', { length: 255 }),
+    // Indirizzo del cantiere ("Destinazione" sul rapportino cartaceo): dove si è lavorato,
+    // che non coincide con la sede del committente. Facoltativo: i cantieri creati prima
+    // di questo campo restano a NULL e il documento semplicemente stampa un trattino.
+    // `text` come companies.address: senza limite in colonna il SOLO limite è quello Zod,
+    // così una stringa troppo lunga diventa un 400 con messaggio e mai un errore del
+    // driver (22001) travestito da 500.
+    address: text('address'),
     description: text('description'),
     status: projectStatusEnum('status').notNull().default('pending'),
     // Solo etichetta: contratto (prezzo fisso) vs consuntivo (ore fatte).

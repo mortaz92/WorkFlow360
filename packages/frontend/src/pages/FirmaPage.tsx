@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { api, ApiError } from '../lib/api';
-import type { PublicRapportino, TimeLogTipo } from '../lib/types';
-import { badgeClassForTipo, formatDate, formatHours, RAPPORTINO_STATUS_LABELS } from '../lib/format';
+import type { PublicRapportino } from '../lib/types';
+import { RAPPORTINO_STATUS_LABELS } from '../lib/format';
 import { ArrowLeftIcon, CheckCircleIcon } from '../components/icons';
+import FoglioRapportino from '../components/rapportino/FoglioRapportino';
 import { Button, Card, CardContent, CardHeader, CardTitle, Input } from '../components/ui';
 
 // Classi ricorrenti, scritte una volta sola invece di ripeterle — stessi valori già
@@ -13,11 +14,6 @@ const ALERT_ERRORE =
   'rounded-lg border border-danger-200 bg-danger-50 px-3 py-2.5 text-sm font-medium text-danger-600 dark:border-danger-800 dark:bg-danger-900/30 dark:text-danger-400';
 
 const TESTO_ATTENUATO = 'text-sm text-surface-500 dark:text-surface-400';
-
-const ELENCO = 'm-0 flex list-none flex-col gap-2 p-0';
-
-const RIGA_ELENCO =
-  'rounded-lg border border-surface-200 bg-white p-3 dark:border-surface-700 dark:bg-surface-800';
 
 const ETICHETTA_CAMPO = 'block text-sm font-medium text-surface-700 dark:text-surface-300';
 
@@ -347,7 +343,14 @@ export default function FirmaPage() {
       {/* Nessuna sidebar né header dell'app: schermo intero pensato per essere messo in
           mano al cliente, che non deve vedere alcuna traccia di navigazione interna. */}
       <header className="sticky top-0 z-10 border-b border-surface-200 bg-white px-4 py-3 dark:border-surface-700 dark:bg-surface-900">
-        <strong className="text-lg font-semibold text-surface-900 dark:text-white">Firma del rapportino</strong>
+        <strong className="block text-lg font-semibold text-surface-900 dark:text-white">Rapportino da firmare</strong>
+        {/* Nome dell'azienda che emette il documento, non dell'app: chi ha in mano il
+            telefono deve capire di chi è il rapportino che sta per firmare. */}
+        {rapportino && (
+          <span className="block text-xs text-surface-500 dark:text-surface-400">
+            {rapportino.snapshot.azienda.nome}
+          </span>
+        )}
       </header>
 
       <main className="mx-auto flex max-w-xl flex-col gap-4 p-4">
@@ -366,62 +369,25 @@ export default function FirmaPage() {
               </div>
             )}
 
-            <Card>
-              <CardHeader>
-                <CardTitle>
-                  {rapportino.snapshot.cantiere.nome}
-                  {rapportino.snapshot.cantiere.clientName ? ` · ${rapportino.snapshot.cantiere.clientName}` : ''}
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="flex flex-col gap-3">
-                <span className={TESTO_ATTENUATO}>{formatDate(rapportino.snapshot.date)}</span>
-
-                <ul className={ELENCO}>
-                  {rapportino.snapshot.righe.map((riga) => (
-                    <li key={riga.timeLogId} className={`${RIGA_ELENCO} flex flex-col gap-1`}>
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="font-medium text-surface-900 dark:text-surface-100">
-                          {riga.operaio.nome} · {riga.lavoro.titolo}
-                        </span>
-                        <span className={badgeClassForTipo(riga.tipo as TimeLogTipo)}>
-                          {riga.tipo} {formatHours(riga.ore)}h
-                        </span>
-                      </div>
-                      {(riga.oraInizio || riga.oraFine) && (
-                        <span className={TESTO_ATTENUATO}>
-                          {riga.oraInizio ? `dalle ${riga.oraInizio.slice(0, 5)}` : ''}
-                          {riga.oraFine ? ` alle ${riga.oraFine.slice(0, 5)}` : ''}
-                        </span>
-                      )}
-                      {riga.descrizioneLavoro && <span className={TESTO_ATTENUATO}>{riga.descrizioneLavoro}</span>}
-                      {riga.note && <span className={TESTO_ATTENUATO}>Note: {riga.note}</span>}
-                      {riga.materiali.length > 0 && (
-                        <span className={TESTO_ATTENUATO}>
-                          {riga.materiali.map((m) => `${m.nome} ${m.quantita}${m.unita}`).join(', ')}
-                        </span>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-
-                <div className="flex flex-wrap items-center gap-2 border-t border-surface-200 pt-3 dark:border-surface-700">
-                  <span className="text-sm font-semibold text-surface-900 dark:text-surface-100">
-                    Totale {formatHours(rapportino.snapshot.totali.oreTotali)}h
-                  </span>
-                  {Object.entries(rapportino.snapshot.totali.perTipo).map(([tipo, ore]) => (
-                    <span key={tipo} className={badgeClassForTipo(tipo as TimeLogTipo)}>
-                      {tipo} {formatHours(ore)}h
-                    </span>
-                  ))}
-                </div>
-                {rapportino.snapshot.totali.materiali.length > 0 && (
-                  <p className={TESTO_ATTENUATO}>
-                    Materiali:{' '}
-                    {rapportino.snapshot.totali.materiali.map((m) => `${m.nome} ${m.quantita}${m.unita}`).join(', ')}
-                  </p>
-                )}
-              </CardContent>
-            </Card>
+            {/* Il documento vero e proprio, nello stesso componente usato dall'anteprima
+                dell'operaio: quello che il cliente vede qui è esattamente quello che
+                l'operaio ha controllato prima di passargli il telefono, e assomiglia al PDF
+                che gli arriverà via email. `firma` solo se il rapportino è GIÀ firmato
+                (pagina riaperta su un documento chiuso): prima della firma il dato non
+                esiste, e il foglio mostra il riquadro "in attesa di firma". */}
+            <FoglioRapportino
+              snapshot={rapportino.snapshot}
+              numero={rapportino.numero}
+              firma={
+                rapportino.signedAt
+                  ? {
+                      nome: rapportino.signerName,
+                      email: rapportino.signerEmail,
+                      firmatoIl: rapportino.signedAt,
+                    }
+                  : undefined
+              }
+            />
 
             {rapportino.status === 'in_firma' && (
               <Card>
@@ -435,6 +401,12 @@ export default function FirmaPage() {
                     </div>
                   )}
                   <form className="flex flex-col gap-4" onSubmit={handleSubmit}>
+                    {/* Cosa si sta firmando, detto prima del riquadro e non dopo: sopra c'è
+                        il documento intero, qui l'atto. Non sostituisce la riga legale del
+                        foglio (che dice cosa la firma NON approva): la richiama in una frase. */}
+                    <p className="m-0 text-sm text-surface-700 dark:text-surface-300">
+                      Firmando confermi le ore e i materiali riportati sopra.
+                    </p>
                     {/* autoComplete="off" su entrambi: lo stesso telefono (dell'operaio) fa
                         firmare clienti diversi più volte nella giornata — senza, il browser
                         proporrebbe in autocompletamento nome/email del cliente PRECEDENTE,
@@ -445,6 +417,15 @@ export default function FirmaPage() {
                       size="lg"
                       placeholder="Nome e cognome"
                       autoComplete="off"
+                      // SUGGERIMENTO, non precompilazione: clientName è la ragione sociale
+                      // ("CINEMA ARENA"), chi firma è una persona — precompilarlo
+                      // riempirebbe il campo con un dato quasi sempre sbagliato, che nessuno
+                      // riguarderebbe più.
+                      hint={
+                        rapportino.snapshot.cantiere.clientName
+                          ? `Committente: ${rapportino.snapshot.cantiere.clientName}`
+                          : undefined
+                      }
                       value={firmatarioNome}
                       onChange={(e) => setFirmatarioNome(e.target.value)}
                       required
@@ -463,7 +444,13 @@ export default function FirmaPage() {
 
                     <div className="flex flex-col gap-2">
                       <span className={ETICHETTA_CAMPO}>Firma</span>
-                      <div ref={containerRef} className="w-full">
+                      {/* La guida "Firma qui" è un div SOVRAPPOSTO, non un disegno sul
+                          canvas: canvas.toDataURL() esporta tutto ciò che è stato disegnato,
+                          quindi una guida tracciata lì dentro finirebbe stampata dentro la
+                          firma nel PDF che il cliente riceve. pointer-events-none perché il
+                          dito deve arrivare al canvas, non all'overlay; sparisce al primo
+                          tratto. */}
+                      <div ref={containerRef} className="relative w-full">
                         <canvas
                           ref={canvasRef}
                           className="w-full touch-none rounded-lg border border-surface-300 dark:border-surface-600"
@@ -474,8 +461,30 @@ export default function FirmaPage() {
                           onPointerCancel={handlePointerUp}
                           aria-label="Riquadro per la firma col dito o con lo stilo"
                         />
+                        {!hasSignature && (
+                          <>
+                            <span
+                              className="pointer-events-none absolute inset-x-4 bottom-8 border-b border-surface-300"
+                              aria-hidden="true"
+                            />
+                            <span
+                              className="pointer-events-none absolute bottom-9 left-4 text-xs text-surface-400"
+                              aria-hidden="true"
+                            >
+                              Firma qui
+                            </span>
+                          </>
+                        )}
                       </div>
-                      <Button type="button" variant="ghost" onClick={clearSignature} disabled={!hasSignature}>
+                      {/* size="lg" e accanto al riquadro, non sotto il bottone principale:
+                          si preme con i guanti da cantiere, un bersaglio da 38px non basta. */}
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="lg"
+                        onClick={clearSignature}
+                        disabled={!hasSignature}
+                      >
                         Cancella firma
                       </Button>
                     </div>

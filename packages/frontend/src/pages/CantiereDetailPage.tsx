@@ -4,6 +4,7 @@ import { api, ApiError, getCurrentUser } from '../lib/api';
 import type { AssignableUser, Project, ProjectDetail, ProjectStatus, ProjectTipoCommessa, Task } from '../lib/types';
 import {
   ArrowLeftIcon,
+  BuildingIcon,
   CalendarIcon,
   ClipboardIcon,
   ClockIcon,
@@ -175,9 +176,20 @@ export default function CantiereDetailPage() {
                 </span>
               )}
             </div>
-            <div className="mt-1 flex items-center gap-1 text-sm text-surface-500 dark:text-surface-400">
-              <CalendarIcon className="h-4 w-4" />
-              Creato il {formatDate(project.createdAt)}
+            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-surface-500 dark:text-surface-400">
+              <span className="flex items-center gap-1">
+                <CalendarIcon className="h-4 w-4" />
+                Creato il {formatDate(project.createdAt)}
+              </span>
+              {/* Mostrato solo se c'è: una riga "Indirizzo: —" occuperebbe spazio per dire
+                  che non si sa nulla. È la "Destinazione" stampata sui rapportini, ed è qui
+                  che si controlla che sia quella giusta prima di farne firmare uno. */}
+              {project.address && (
+                <span className="flex items-center gap-1">
+                  <BuildingIcon className="h-4 w-4" />
+                  {project.address}
+                </span>
+              )}
             </div>
           </div>
 
@@ -335,6 +347,7 @@ function ProjectEditForm({ project, onSaved }: { project: Project; onSaved: () =
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(project.name);
   const [code, setCode] = useState(project.code ?? '');
+  const [address, setAddress] = useState(project.address ?? '');
   const [tipoCommessa, setTipoCommessa] = useState(project.tipoCommessa);
   const [status, setStatus] = useState(project.status);
   const [error, setError] = useState<string | null>(null);
@@ -345,9 +358,12 @@ function ProjectEditForm({ project, onSaved }: { project: Project; onSaved: () =
   // la modifica, mai da uno stato congelato al primo mount — altrimenti "Annulla" non
   // annulla davvero e un salvataggio può sovrascrivere in silenzio una modifica fatta
   // nel frattempo da un collega.
+  // OGNI campo nuovo del form va aggiunto anche QUI: i due bug sopra sono esattamente
+  // quello che succede a un campo dimenticato in questa funzione.
   function syncAndToggle(next: boolean) {
     setName(project.name);
     setCode(project.code ?? '');
+    setAddress(project.address ?? '');
     setTipoCommessa(project.tipoCommessa);
     setStatus(project.status);
     setError(null);
@@ -356,12 +372,19 @@ function ProjectEditForm({ project, onSaved }: { project: Project; onSaved: () =
 
   // Poter correggere il codice anche da qui (non solo alla creazione) non è
   // estetico: un codice sbagliato è altrimenti irreparabile, perché deleteProject
-  // rifiuta di cancellare un cantiere con ore registrate collegate.
+  // rifiuta di cancellare un cantiere con ore registrate collegate. Vale identico per
+  // l'indirizzo, che per giunta finisce stampato sui rapportini.
   async function save() {
     setError(null);
     setBusy(true);
     try {
-      await api.updateProject(project.id, { name, code: code.trim() || null, tipoCommessa, status });
+      await api.updateProject(project.id, {
+        name,
+        code: code.trim() || null,
+        address: address.trim() || null,
+        tipoCommessa,
+        status,
+      });
       setEditing(false);
       onSaved();
     } catch (err) {
@@ -401,6 +424,15 @@ function ProjectEditForm({ project, onSaved }: { project: Project; onSaved: () =
         value={code}
         onChange={(e) => setCode(e.target.value)}
         maxLength={50}
+      />
+      {/* maxLength allineato al tetto dello schema Zod del backend (addressSchema, 500). */}
+      <Input
+        id="cantiere-edit-indirizzo"
+        label="Indirizzo del cantiere (facoltativo)"
+        placeholder="es. Via Roma 12, Milano — la Destinazione sul rapportino"
+        value={address}
+        onChange={(e) => setAddress(e.target.value)}
+        maxLength={500}
       />
       <Select
         id="cantiere-edit-tipo"
